@@ -1,0 +1,47 @@
+/* Tailwind base layers */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Global defaults */
+@layer base {
+  body {
+    font-family: 'Inter', sans-serif;
+    background-color: #0f1117;
+    color: #f1f5f9;
+  }
+
+  /* Use the monospace font for all numbers */
+  .num {
+    font-family: 'JetBrains Mono', monospace;
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+/* Reusable utility classes */
+@layer components {
+  /* Standard card */
+  .card {
+    @apply bg-surface-card border border-surface-border rounded-xl p-4;
+  }
+
+  /* Price change badges */
+  .badge-up   { @apply text-up   bg-up/10   px-2 py-0.5 rounded text-xs font-medium num; }
+  .badge-down { @apply text-down bg-down/10 px-2 py-0.5 rounded text-xs font-medium num; }
+
+  /* Table styles */
+  .data-table th {
+    @apply text-xs font-medium text-slate-400 uppercase tracking-wider py-3 px-4 text-left;
+  }
+  .data-table td {
+    @apply py-3 px-4 text-sm border-t border-surface-border;
+  }
+  .data-table tr:hover td {
+    @apply bg-surface-hover;
+  }
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar       { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: #1a1d27; }
+::-webkit-scrollbar-thumb { background: #2a2d3d; border-radius: 3px; }
