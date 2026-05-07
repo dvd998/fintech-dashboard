@@ -21,7 +21,7 @@ A real-time financial data dashboard built with FastAPI and React. Tracks stocks
 | Layer | Technology |
 |---|---|
 | Backend | Python, FastAPI, SQLAlchemy, APScheduler |
-| Data | yfinance |
+| Data | yfinance, CoinGecko |
 | Database | SQLite |
 | Frontend | React 18, Vite, Recharts, Tailwind CSS |
 
