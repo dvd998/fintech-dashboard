@@ -37,11 +37,10 @@ def seed_assets(db: Session) -> None:
 
 def refresh_current_prices(db: Session) -> None:
     """
-    Fetch the latest price snapshot for every asset using yfinance
-    and upsert it into the current_prices table.
-    Called by the scheduler every few minutes.
+    Fetch the latest price snapshot for non-crypto assets using yfinance.
+    Crypto is handled separately by coingecko.refresh_crypto_prices.
     """
-    assets = db.query(Asset).all()
+    assets = db.query(Asset).filter(Asset.category != "crypto").all()
     if not assets:
         return
 
@@ -109,11 +108,10 @@ def refresh_current_prices(db: Session) -> None:
 
 def refresh_history(db: Session, days: int = 365) -> None:
     """
-    Fetch daily OHLCV history for all assets and store it in price_history.
-    On first run this downloads a full year; afterwards only new candles are added.
-    Called by the scheduler once per day.
+    Fetch daily OHLCV history for non-crypto assets using yfinance.
+    Crypto history is handled separately by coingecko.refresh_crypto_history.
     """
-    assets = db.query(Asset).all()
+    assets = db.query(Asset).filter(Asset.category != "crypto").all()
     logger.info(f"Refreshing history for {len(assets)} assets ({days} days)...")
 
     period = f"{days}d"
