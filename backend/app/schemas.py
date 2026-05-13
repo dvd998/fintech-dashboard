@@ -46,3 +46,37 @@ class AssetDetailSchema(BaseModel):
     history:  list[HistoryPointSchema]
 
     model_config = {"from_attributes": True}
+
+
+# ── AI Playground — News Analyzer ───────────────────────────────────────────
+
+class AffectedAssetSchema(BaseModel):
+    """One asset that Claude identified as likely affected by a news article."""
+    symbol:   str
+    name:     str
+    category: str
+    impact:   str   # positive | negative | neutral
+    reason:   str   # one-sentence explanation
+
+
+class NewsArticleSchema(BaseModel):
+    """A news article with its Claude-generated sentiment analysis."""
+    id:              int
+    url:             str
+    title:           str
+    source:          Optional[str]
+    published_at:    Optional[datetime]
+    summary:         Optional[str]
+    fetched_at:      datetime
+    sentiment_label: Optional[str]         # bullish | bearish | neutral
+    sentiment_score: Optional[float]       # -1.0 to +1.0
+    affected_assets: list[AffectedAssetSchema] = []
+    reasoning:       Optional[str]
+    tags:            list[str] = []
+    analyzed_at:     Optional[datetime]
+
+
+class NewsRefreshResponse(BaseModel):
+    """Response from the news refresh endpoint."""
+    new_articles: int
+    message:      str

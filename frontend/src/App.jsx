@@ -11,12 +11,13 @@ import { useState } from 'react'
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import Sidebar from './components/layout/Sidebar'
 import Header  from './components/layout/Header'
-import Dashboard   from './pages/Dashboard'
-import Stocks      from './pages/Stocks'
-import Crypto      from './pages/Crypto'
-import Commodities from './pages/Commodities'
-import Forex       from './pages/Forex'
-import Indices     from './pages/Indices'
+import Dashboard    from './pages/Dashboard'
+import Stocks       from './pages/Stocks'
+import Crypto       from './pages/Crypto'
+import Commodities  from './pages/Commodities'
+import Forex        from './pages/Forex'
+import Indices      from './pages/Indices'
+import NewsAnalyzer from './pages/NewsAnalyzer'
 
 export default function App() {
   // lastUpdated is set by each page after it finishes loading data
@@ -53,7 +54,8 @@ export default function App() {
               <Route path="/crypto"      element={<Crypto      key={refreshKey} onDataLoaded={setLastUpdated} />} />
               <Route path="/commodities" element={<Commodities key={refreshKey} onDataLoaded={setLastUpdated} />} />
               <Route path="/forex"       element={<Forex       key={refreshKey} onDataLoaded={setLastUpdated} />} />
-              <Route path="/indices"     element={<Indices     key={refreshKey} onDataLoaded={setLastUpdated} />} />
+              <Route path="/indices"             element={<Indices      key={refreshKey} onDataLoaded={setLastUpdated} />} />
+              <Route path="/ai-playground/news" element={<NewsAnalyzer key={refreshKey} />} />
             </Routes>
           </main>
         </div>

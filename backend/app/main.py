@@ -14,6 +14,7 @@ load_dotenv()
 from .database import engine, Base
 from .scheduler import start_scheduler
 from .routers import stocks, crypto, commodities, forex, indices
+from .routers import playground
 
 logging.basicConfig(level=logging.INFO)
 
@@ -51,6 +52,7 @@ app.include_router(crypto.router,      prefix="/api/crypto",      tags=["Crypto"
 app.include_router(commodities.router, prefix="/api/commodities", tags=["Commodities"])
 app.include_router(forex.router,       prefix="/api/forex",        tags=["Forex"])
 app.include_router(indices.router,     prefix="/api/indices",      tags=["Indices"])
+app.include_router(playground.router,  prefix="/api/playground",   tags=["AI Playground"])
 
 
 @app.get("/api/health")

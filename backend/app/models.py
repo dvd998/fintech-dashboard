@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey, UniqueConstraint
+from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey, UniqueConstraint, Text
 from sqlalchemy.orm import relationship
 from datetime import datetime, timezone
 from .database import Base
@@ -55,3 +55,24 @@ class PriceHistory(Base):
 
     # Prevent duplicate candles for the same asset+date
     __table_args__ = (UniqueConstraint("asset_id", "date", name="uq_asset_date"),)
+
+
+class NewsArticle(Base):
+    """One row per fetched news article — analysis fields filled by Claude after fetch."""
+    __tablename__ = "news_articles"
+
+    id           = Column(Integer, primary_key=True, index=True)
+    url          = Column(String, unique=True, index=True, nullable=False)
+    title        = Column(String, nullable=False)
+    source       = Column(String, nullable=True)
+    published_at = Column(DateTime, nullable=True)
+    summary      = Column(Text, nullable=True)
+    fetched_at   = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+    # Claude analysis results (null when analysis failed or not yet run)
+    sentiment_label  = Column(String, nullable=True)   # bullish | bearish | neutral
+    sentiment_score  = Column(Float, nullable=True)    # -1.0 to +1.0
+    affected_assets  = Column(Text, nullable=True)     # JSON array string
+    reasoning        = Column(Text, nullable=True)
+    tags             = Column(Text, nullable=True)     # JSON array string
+    analyzed_at      = Column(DateTime, nullable=True)

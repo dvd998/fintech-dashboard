@@ -26,3 +26,9 @@ export const fetchForexDetail = (symbol) => api.get(`/forex/${symbol}`).then(r =
 // ── Indices ──────────────────────────────────────────────────────────────────
 export const fetchIndices      = () => api.get('/indices/').then(r => r.data)
 export const fetchIndexDetail  = (symbol) => api.get(`/indices/${symbol}`).then(r => r.data)
+
+// ── AI Playground — News Analyzer ───────────────────────────────────────────
+// fetchNews: returns cached analyzed articles from the DB
+export const fetchNews         = (limit = 60) => api.get(`/playground/news?limit=${limit}`).then(r => r.data)
+// refreshNews: triggers RSS fetch + Claude analysis for new articles
+export const refreshNews       = () => api.post('/playground/news/refresh').then(r => r.data)

@@ -6,12 +6,13 @@ import { RefreshCw } from 'lucide-react'
 
 // Map URL paths to readable page titles
 const PAGE_TITLES = {
-  '/':            'Dashboard',
-  '/stocks':      'Stocks',
-  '/crypto':      'Crypto',
-  '/commodities': 'Commodities',
-  '/forex':       'Forex',
-  '/indices':     'Indices',
+  '/':                    'Dashboard',
+  '/stocks':              'Stocks',
+  '/crypto':              'Crypto',
+  '/commodities':         'Commodities',
+  '/forex':               'Forex',
+  '/indices':             'Indices',
+  '/ai-playground/news':  'News Analyzer',
 }
 
 export default function Header({ onRefresh, lastUpdated }) {
