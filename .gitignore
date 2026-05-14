@@ -28,3 +28,7 @@ Thumbs.db
 
 # Claude Code local config
 .claude/
+
+# Jupyter notebooks (local analysis only)
+*.ipynb
+.ipynb_checkpoints/
