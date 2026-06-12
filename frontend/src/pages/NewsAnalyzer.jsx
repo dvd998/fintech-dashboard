@@ -166,17 +166,9 @@ function NewsCard({ article, expanded, onToggle }) {
       </div>
 
       {/* ── Headline ── */}
-      <a
-        href={article.url}
-        target="_blank"
-        rel="noreferrer"
-        className="group"
-      >
-        <h3 className="text-sm font-semibold text-white leading-snug mb-1.5 group-hover:text-brand transition-colors">
-          {article.title}
-          <ExternalLink size={10} className="inline ml-1.5 opacity-0 group-hover:opacity-50 transition-opacity" />
-        </h3>
-      </a>
+      <h3 className="text-sm font-semibold text-white leading-snug mb-1.5">
+        {article.title}
+      </h3>
 
       {/* ── Summary excerpt ── */}
       {article.summary && (
@@ -218,6 +210,19 @@ function NewsCard({ article, expanded, onToggle }) {
                     ))}
                   </div>
                 </div>
+              )}
+
+              {/* Link to original article */}
+              {article.url && (
+                <a
+                  href={article.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-1.5 text-[11px] text-brand hover:underline"
+                >
+                  <ExternalLink size={11} />
+                  Read full article
+                </a>
               )}
             </div>
           )}
