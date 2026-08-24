@@ -9,9 +9,11 @@
  */
 import { useState } from 'react'
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
+import { WatchlistProvider } from './context/WatchlistContext'
 import Sidebar from './components/layout/Sidebar'
 import Header  from './components/layout/Header'
 import Dashboard    from './pages/Dashboard'
+import Watchlist    from './pages/Watchlist'
 import Stocks       from './pages/Stocks'
 import Crypto       from './pages/Crypto'
 import Commodities  from './pages/Commodities'
@@ -32,6 +34,9 @@ export default function App() {
   return (
     // BrowserRouter must wrap everything that uses routing hooks
     <BrowserRouter>
+      {/* WatchlistProvider loads the starred-assets list once and shares it
+          with every star toggle (tables, cards) and the Watchlist page */}
+      <WatchlistProvider>
       <div className="flex min-h-screen">
         {/* Fixed sidebar — always visible */}
         <Sidebar />
@@ -50,6 +55,7 @@ export default function App() {
             */}
             <Routes>
               <Route path="/"            element={<Dashboard   key={refreshKey} onDataLoaded={setLastUpdated} />} />
+              <Route path="/watchlist"   element={<Watchlist   key={refreshKey} />} />
               <Route path="/stocks"      element={<Stocks      key={refreshKey} onDataLoaded={setLastUpdated} />} />
               <Route path="/crypto"      element={<Crypto      key={refreshKey} onDataLoaded={setLastUpdated} />} />
               <Route path="/commodities" element={<Commodities key={refreshKey} onDataLoaded={setLastUpdated} />} />
@@ -60,6 +66,7 @@ export default function App() {
           </main>
         </div>
       </div>
+      </WatchlistProvider>
     </BrowserRouter>
   )
 }

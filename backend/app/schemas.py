@@ -80,3 +80,25 @@ class NewsRefreshResponse(BaseModel):
     """Response from the news refresh endpoint."""
     new_articles: int
     message:      str
+
+
+# ── Watchlist ────────────────────────────────────────────────────────────────
+
+class WatchlistItemSchema(BaseModel):
+    """A watched asset with its latest price snapshot."""
+    symbol:         str
+    name:           str
+    category:       str
+    price:          Optional[float]
+    open:           Optional[float]
+    high:           Optional[float]
+    low:            Optional[float]
+    prev_close:     Optional[float]
+    change:         Optional[float]
+    change_percent: Optional[float]
+    volume:         Optional[float]
+    market_cap:     Optional[float]
+    updated_at:     Optional[datetime]
+    added_at:       datetime
+
+    model_config = {"from_attributes": True}

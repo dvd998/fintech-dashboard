@@ -5,6 +5,7 @@
  */
 import { useState } from 'react'
 import { ChevronUp, ChevronDown, ChevronsUpDown } from 'lucide-react'
+import WatchlistToggle from './WatchlistToggle'
 
 // ── Formatting helpers ────────────────────────────────────────────────────────
 
@@ -104,6 +105,7 @@ export default function PriceTable({ assets = [], onRowClick }) {
       <table className="w-full data-table">
         <thead>
           <tr className="bg-surface-card">
+            <th className="w-8" />
             {COLUMNS.map(col => (
               <th
                 key={col.key}
@@ -125,6 +127,9 @@ export default function PriceTable({ assets = [], onRowClick }) {
               onClick={() => onRowClick?.(asset)}
               className={onRowClick ? 'cursor-pointer' : ''}
             >
+              <td className="!py-3 !px-3">
+                <WatchlistToggle asset={asset} size={15} />
+              </td>
               {COLUMNS.map(col => (
                 <td key={col.key}>{col.render(asset)}</td>
               ))}

@@ -24,55 +24,15 @@
  */
 import { useEffect, useState } from 'react'
 import {
-  Sparkles, RefreshCw, Loader2, TrendingUp, TrendingDown,
-  Minus, Brain, Newspaper, ExternalLink, AlertTriangle,
+  Sparkles, RefreshCw, Loader2,
+  Brain, Newspaper, ExternalLink, AlertTriangle,
   Search, X,
 } from 'lucide-react'
 import { fetchNews, refreshNews } from '../services/api'
-
-// ── Tiny helper utilities ─────────────────────────────────────────────────────
-
-/** How long ago was this date? Returns e.g. "3h ago", "2d ago". */
-function timeAgo(dateStr) {
-  if (!dateStr) return ''
-  const diffMs = Date.now() - new Date(dateStr).getTime()
-  const mins   = Math.floor(diffMs / 60_000)
-  const hours  = Math.floor(diffMs / 3_600_000)
-  const days   = Math.floor(diffMs / 86_400_000)
-  if (mins < 1)   return 'just now'
-  if (hours < 1)  return `${mins}m ago`
-  if (days  < 1)  return `${hours}h ago`
-  return `${days}d ago`
-}
-
-/** Format a sentiment score like "+0.73" or "−0.42". */
-function fmtScore(score) {
-  if (score == null) return ''
-  return score > 0 ? `+${score.toFixed(2)}` : score.toFixed(2)
-}
+import { timeAgo } from '../utils/format'
+import SentimentBadge, { sentimentBorder } from '../components/common/SentimentBadge'
 
 // ── Sub-components ────────────────────────────────────────────────────────────
-
-/**
- * Sentiment badge — shows label + numeric score in the matching color.
- * bullish → green, bearish → red, neutral → slate.
- */
-function SentimentBadge({ label, score }) {
-  const cfg = {
-    bullish: { cls: 'text-up bg-up/10',       Icon: TrendingUp   },
-    bearish: { cls: 'text-down bg-down/10',    Icon: TrendingDown },
-    neutral: { cls: 'text-slate-400 bg-slate-500/10', Icon: Minus },
-  }
-  const { cls, Icon } = cfg[label] ?? cfg.neutral
-
-  return (
-    <span className={`flex items-center gap-1 text-xs px-2 py-0.5 rounded font-medium num whitespace-nowrap ${cls}`}>
-      <Icon size={10} />
-      {label ? label.charAt(0).toUpperCase() + label.slice(1) : 'Unknown'}
-      {score != null && <span className="ml-0.5 opacity-80">{fmtScore(score)}</span>}
-    </span>
-  )
-}
 
 /**
  * Thin horizontal bar visualizing the sentiment score from -1 to +1.
@@ -114,18 +74,6 @@ function AssetChip({ asset }) {
       {arrow} {asset.symbol}
     </span>
   )
-}
-
-/**
- * The colored left border width/color depends on sentiment.
- * We return a className string used on the card wrapper.
- */
-function sentimentBorder(label) {
-  return {
-    bullish: 'border-l-[3px] border-l-up/60',
-    bearish: 'border-l-[3px] border-l-down/60',
-    neutral: 'border-l-[3px] border-l-slate-600',
-  }[label] ?? 'border-l-[3px] border-l-surface-border'
 }
 
 /**

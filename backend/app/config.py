@@ -15,6 +15,7 @@ ASSETS = {
         {"symbol": "V",     "name": "Visa Inc."},
         {"symbol": "JNJ",   "name": "Johnson & Johnson"},
         {"symbol": "WMT",   "name": "Walmart Inc."},
+        {"symbol": "NVO",   "name": "Novo Nordisk A/S"},
     ],
     "crypto": [
         {"symbol": "BTC-USD",  "name": "Bitcoin",   "coingecko_id": "bitcoin"},

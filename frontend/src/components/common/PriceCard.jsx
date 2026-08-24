@@ -3,6 +3,7 @@
  * Used on the Dashboard overview and as a highlight at the top of detail pages.
  */
 import { TrendingUp, TrendingDown } from 'lucide-react'
+import WatchlistToggle from './WatchlistToggle'
 
 /**
  * Format a number as a price string.
@@ -49,14 +50,17 @@ export default function PriceCard({ asset, onClick }) {
           </p>
         </div>
 
-        {/* Up / down indicator */}
-        <span className={isUp ? 'badge-up' : 'badge-down'}>
-          {isUp
-            ? <TrendingUp size={10} className="inline mr-1" />
-            : <TrendingDown size={10} className="inline mr-1" />
-          }
-          {formatChange(asset.change_percent)}
-        </span>
+        {/* Watchlist star + up/down indicator, stacked top-right */}
+        <div className="flex flex-col items-end gap-1.5">
+          <WatchlistToggle asset={asset} size={14} />
+          <span className={isUp ? 'badge-up' : 'badge-down'}>
+            {isUp
+              ? <TrendingUp size={10} className="inline mr-1" />
+              : <TrendingDown size={10} className="inline mr-1" />
+            }
+            {formatChange(asset.change_percent)}
+          </span>
+        </div>
       </div>
 
       {/* Price */}

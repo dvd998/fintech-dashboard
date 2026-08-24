@@ -10,6 +10,7 @@
 import { NavLink } from 'react-router-dom'
 import {
   LayoutDashboard,
+  Star,
   TrendingUp,
   Bitcoin,
   Layers,
@@ -22,6 +23,7 @@ import {
 // Market data pages
 const MARKET_ITEMS = [
   { to: '/',            label: 'Dashboard',   icon: LayoutDashboard },
+  { to: '/watchlist',   label: 'Watchlist',   icon: Star            },
   { to: '/stocks',      label: 'Stocks',      icon: TrendingUp      },
   { to: '/crypto',      label: 'Crypto',      icon: Bitcoin         },
   { to: '/commodities', label: 'Commodities', icon: Layers          },

@@ -76,3 +76,14 @@ class NewsArticle(Base):
     reasoning        = Column(Text, nullable=True)
     tags             = Column(Text, nullable=True)     # JSON array string
     analyzed_at      = Column(DateTime, nullable=True)
+
+
+class WatchlistItem(Base):
+    """One row per asset the user has starred onto their personal watchlist."""
+    __tablename__ = "watchlist_items"
+
+    id       = Column(Integer, primary_key=True, index=True)
+    asset_id = Column(Integer, ForeignKey("assets.id"), unique=True, nullable=False)
+    added_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+    asset = relationship("Asset")

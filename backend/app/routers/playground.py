@@ -2,51 +2,17 @@
 AI Playground router.
 Provides news sentiment data and will host future AI features.
 """
-import json
 import logging
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..models import NewsArticle
-from ..schemas import AffectedAssetSchema, NewsArticleSchema, NewsRefreshResponse
-from ..services.news_service import fetch_and_analyze
+from ..schemas import NewsArticleSchema, NewsRefreshResponse
+from ..services.news_service import fetch_and_analyze, serialize_article
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
-
-
-def _serialize(article: NewsArticle) -> NewsArticleSchema:
-    """Convert a DB row to the API schema, parsing JSON text fields back to lists."""
-    affected: list[AffectedAssetSchema] = []
-    if article.affected_assets:
-        try:
-            affected = [AffectedAssetSchema(**a) for a in json.loads(article.affected_assets)]
-        except Exception:
-            pass
-
-    tags: list[str] = []
-    if article.tags:
-        try:
-            tags = json.loads(article.tags)
-        except Exception:
-            pass
-
-    return NewsArticleSchema(
-        id              = article.id,
-        url             = article.url,
-        title           = article.title,
-        source          = article.source,
-        published_at    = article.published_at,
-        summary         = article.summary,
-        fetched_at      = article.fetched_at,
-        sentiment_label = article.sentiment_label,
-        sentiment_score = article.sentiment_score,
-        affected_assets = affected,
-        reasoning       = article.reasoning,
-        tags            = tags,
-        analyzed_at     = article.analyzed_at,
-    )
 
 
 @router.get("/news", response_model=list[NewsArticleSchema])
@@ -58,7 +24,7 @@ def get_news(limit: int = 60, db: Session = Depends(get_db)):
         .limit(limit)
         .all()
     )
-    return [_serialize(r) for r in rows]
+    return [serialize_article(r) for r in rows]
 
 
 @router.post("/news/refresh", response_model=NewsRefreshResponse)

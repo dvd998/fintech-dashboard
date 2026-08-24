@@ -32,3 +32,9 @@ export const fetchIndexDetail  = (symbol) => api.get(`/indices/${symbol}`).then(
 export const fetchNews         = (limit = 60) => api.get(`/playground/news?limit=${limit}`).then(r => r.data)
 // refreshNews: triggers RSS fetch + Claude analysis for new articles
 export const refreshNews       = () => api.post('/playground/news/refresh').then(r => r.data)
+
+// ── Watchlist ────────────────────────────────────────────────────────────────
+export const fetchWatchlist      = () => api.get('/watchlist/').then(r => r.data)
+export const addToWatchlist      = (symbol) => api.post(`/watchlist/${symbol}`).then(r => r.data)
+export const removeFromWatchlist = (symbol) => api.delete(`/watchlist/${symbol}`).then(r => r.data)
+export const fetchWatchlistNews  = (symbol) => api.get(`/watchlist/${symbol}/news`).then(r => r.data)

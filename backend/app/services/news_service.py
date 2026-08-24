@@ -24,6 +24,7 @@ from anthropic import Anthropic
 
 from ..models import NewsArticle
 from ..config import ASSETS
+from ..schemas import AffectedAssetSchema, NewsArticleSchema
 
 logger = logging.getLogger(__name__)
 
@@ -155,6 +156,41 @@ def _analyze_single(title: str, summary: str) -> dict:
         lines = raw.split("\n")
         raw   = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
     return json.loads(raw)
+
+
+# ── Serialization ────────────────────────────────────────────────────────────
+
+def serialize_article(article: NewsArticle) -> NewsArticleSchema:
+    """Convert a DB row to the API schema, parsing JSON text fields back to lists."""
+    affected: list[AffectedAssetSchema] = []
+    if article.affected_assets:
+        try:
+            affected = [AffectedAssetSchema(**a) for a in json.loads(article.affected_assets)]
+        except Exception:
+            pass
+
+    tags: list[str] = []
+    if article.tags:
+        try:
+            tags = json.loads(article.tags)
+        except Exception:
+            pass
+
+    return NewsArticleSchema(
+        id              = article.id,
+        url             = article.url,
+        title           = article.title,
+        source          = article.source,
+        published_at    = article.published_at,
+        summary         = article.summary,
+        fetched_at      = article.fetched_at,
+        sentiment_label = article.sentiment_label,
+        sentiment_score = article.sentiment_score,
+        affected_assets = affected,
+        reasoning       = article.reasoning,
+        tags            = tags,
+        analyzed_at     = article.analyzed_at,
+    )
 
 
 # ── Main entry point ──────────────────────────────────────────────────────────
