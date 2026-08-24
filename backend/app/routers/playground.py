@@ -16,15 +16,20 @@ router = APIRouter()
 
 
 @router.get("/news", response_model=list[NewsArticleSchema])
-def get_news(limit: int = 60, db: Session = Depends(get_db)):
-    """Return the most recent analyzed articles from the local cache."""
-    rows = (
+def get_news(limit: int | None = None, db: Session = Depends(get_db)):
+    """
+    Return analyzed articles from the local cache, newest first.
+    With no limit, returns the full cache — the same ordering the watchlist's
+    per-asset news lookup uses, so sentiment stats and filters stay consistent
+    across both pages.
+    """
+    query = (
         db.query(NewsArticle)
-        .order_by(NewsArticle.fetched_at.desc())
-        .limit(limit)
-        .all()
+        .order_by(NewsArticle.published_at.desc(), NewsArticle.fetched_at.desc())
     )
-    return [serialize_article(r) for r in rows]
+    if limit is not None:
+        query = query.limit(limit)
+    return [serialize_article(r) for r in query.all()]
 
 
 @router.post("/news/refresh", response_model=NewsRefreshResponse)

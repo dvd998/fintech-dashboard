@@ -6,13 +6,42 @@
  * newest to oldest). Assets are starred from anywhere in the app —
  * a table row or a price card — via WatchlistToggle.
  */
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Star, TrendingUp, TrendingDown, X, Newspaper, ExternalLink } from 'lucide-react'
 import { useWatchlist } from '../context/WatchlistContext'
-import { fetchWatchlistNews } from '../services/api'
+import {
+  fetchWatchlistNews,
+  fetchStockDetail, fetchCryptoDetail, fetchCommodityDetail, fetchForexDetail, fetchIndexDetail,
+} from '../services/api'
 import SentimentBadge, { sentimentBorder } from '../components/common/SentimentBadge'
+import PriceAreaChart from '../components/charts/PriceAreaChart'
 import { timeAgo } from '../utils/format'
+
+// Each category's detail endpoint returns the same shape ({ history: [...] });
+// dispatch to the right one by the asset's category, same as the market pages.
+const DETAIL_FETCHERS = {
+  stocks: fetchStockDetail,
+  crypto: fetchCryptoDetail,
+  commodities: fetchCommodityDetail,
+  forex: fetchForexDetail,
+  indices: fetchIndexDetail,
+}
+
+// Matches the accent color each market page uses for its own chart
+const CATEGORY_COLORS = {
+  stocks: '#6366f1',
+  crypto: '#f59e0b',
+  commodities: '#10b981',
+  forex: '#38bdf8',
+  indices: '#a78bfa',
+}
+
+const CHART_PERIODS = [
+  { label: '1M', days: 30 },
+  { label: '3M', days: 90 },
+  { label: '1Y', days: 365 },
+]
 
 function formatPrice(value, symbol = '') {
   if (value == null) return '—'
@@ -66,7 +95,61 @@ function RelatedNewsItem({ article }) {
   )
 }
 
-/** One watched asset: price summary header + its related news list, newest first. */
+/** Compact price-history chart with a period filter, sized for a grid card. */
+function PriceHistorySection({ symbol, category }) {
+  const [detail, setDetail] = useState(null)   // null while loading
+  const [period, setPeriod] = useState('3M')
+  const color = CATEGORY_COLORS[category] ?? '#6366f1'
+
+  useEffect(() => {
+    let cancelled = false
+    setDetail(null)
+    const fetchDetail = DETAIL_FETCHERS[category]
+    if (!fetchDetail) { setDetail({ history: [] }); return }
+    fetchDetail(symbol)
+      .then(data => { if (!cancelled) setDetail(data) })
+      .catch(() => { if (!cancelled) setDetail({ history: [] }) })
+    return () => { cancelled = true }
+  }, [symbol, category])
+
+  const filteredHistory = useMemo(() => {
+    if (!detail?.history?.length) return []
+    const days = CHART_PERIODS.find(p => p.label === period)?.days ?? 90
+    const cutoff = new Date()
+    cutoff.setDate(cutoff.getDate() - days)
+    return detail.history.filter(row => new Date(row.date) >= cutoff)
+  }, [detail, period])
+
+  return (
+    <div className="pt-3 border-t border-surface-border">
+      <div className="flex items-center justify-between mb-2">
+        <p className="text-[11px] text-slate-600 uppercase tracking-wider">Price History</p>
+        <div className="flex gap-1 bg-surface-border/40 rounded-lg p-0.5">
+          {CHART_PERIODS.map(p => (
+            <button
+              key={p.label}
+              onClick={() => setPeriod(p.label)}
+              className={`px-2 py-0.5 text-[11px] rounded font-medium transition-all ${
+                period === p.label ? 'bg-brand text-white' : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {detail
+        ? filteredHistory.length > 0
+          ? <PriceAreaChart data={filteredHistory} color={color} height={140} />
+          : <div className="h-24 flex items-center justify-center text-slate-500 text-xs">No data for this period</div>
+        : <div className="h-[140px] bg-surface rounded-lg animate-pulse" />
+      }
+    </div>
+  )
+}
+
+/** One watched asset: price summary header, price chart, and related news list, newest first. */
 function WatchlistAssetCard({ item }) {
   const [news, setNews] = useState(null)   // null while loading
   const { toggle } = useWatchlist()
@@ -117,8 +200,11 @@ function WatchlistAssetCard({ item }) {
         </div>
       </div>
 
+      {/* ── Price history chart, filterable by period ── */}
+      <PriceHistorySection symbol={item.symbol} category={item.category} />
+
       {/* ── Related news, sorted newest to oldest ── */}
-      <div className="pt-3 border-t border-surface-border">
+      <div className="pt-3 mt-3 border-t border-surface-border">
         <p className="text-[11px] text-slate-600 uppercase tracking-wider mb-2 flex items-center gap-1.5">
           <Newspaper size={11} />
           Related News
@@ -140,7 +226,7 @@ function WatchlistAssetCard({ item }) {
         )}
 
         {news?.length > 0 && (
-          <div className="space-y-2">
+          <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
             {news.map(article => <RelatedNewsItem key={article.id} article={article} />)}
           </div>
         )}
@@ -154,7 +240,7 @@ export default function Watchlist() {
   const navigate = useNavigate()
 
   return (
-    <div className="max-w-3xl mx-auto">
+    <div className="max-w-[1600px] mx-auto">
       {/* ── Page header ── */}
       <div className="mb-6">
         <div className="flex items-center gap-1.5 mb-1">
@@ -165,15 +251,15 @@ export default function Watchlist() {
         </div>
         <h1 className="text-2xl font-bold text-white">Watchlist</h1>
         <p className="text-sm text-slate-400 mt-1">
-          Assets you're tracking, with related news and AI sentiment — newest first
+          Assets you're tracking, with price history, related news and AI sentiment
         </p>
       </div>
 
       {/* ── Loading skeleton ── */}
       {loading && (
-        <div className="space-y-4">
-          {[...Array(2)].map((_, i) => (
-            <div key={i} className="h-52 bg-surface-card rounded-xl border border-surface-border animate-pulse" />
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
+          {[...Array(3)].map((_, i) => (
+            <div key={i} className="h-96 bg-surface-card rounded-xl border border-surface-border animate-pulse" />
           ))}
         </div>
       )}
@@ -198,7 +284,7 @@ export default function Watchlist() {
 
       {/* ── Watched assets ── */}
       {!loading && items.length > 0 && (
-        <div className="space-y-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5 items-start">
           {items.map(item => <WatchlistAssetCard key={item.symbol} item={item} />)}
         </div>
       )}

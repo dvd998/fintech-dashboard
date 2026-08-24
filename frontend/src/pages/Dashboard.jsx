@@ -6,7 +6,6 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { fetchStocks, fetchCrypto, fetchCommodities, fetchForex, fetchIndices } from '../services/api'
 import PriceCard from '../components/common/PriceCard'
-import PriceTable from '../components/common/PriceTable'
 
 // Loading skeleton — shown while data is being fetched
 function SkeletonCard() {
@@ -131,12 +130,20 @@ export default function Dashboard({ onDataLoaded }) {
         </div>
       </Section>
 
-      {/* ── Commodities table ─────────────────────────────────────────────── */}
+      {/* ── Commodities ───────────────────────────────────────────────────── */}
       <Section title="Commodities" to="/commodities">
-        {loading
-          ? <div className="h-40 bg-surface-card rounded-xl animate-pulse" />
-          : <PriceTable assets={commodities} />
-        }
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-3">
+          {loading
+            ? Array(7).fill(0).map((_, i) => <SkeletonCard key={i} />)
+            : commodities.map(a => (
+                <PriceCard
+                  key={a.symbol}
+                  asset={a}
+                  onClick={() => navigate(`/commodities`)}
+                />
+              ))
+          }
+        </div>
       </Section>
     </div>
   )

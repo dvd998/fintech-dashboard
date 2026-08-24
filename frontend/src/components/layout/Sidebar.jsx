@@ -20,10 +20,14 @@ import {
   Newspaper,
 } from 'lucide-react'
 
-// Market data pages
-const MARKET_ITEMS = [
+// Overview — personal/at-a-glance pages
+const OVERVIEW_ITEMS = [
   { to: '/',            label: 'Dashboard',   icon: LayoutDashboard },
   { to: '/watchlist',   label: 'Watchlist',   icon: Star            },
+]
+
+// Market data pages
+const MARKET_ITEMS = [
   { to: '/stocks',      label: 'Stocks',      icon: TrendingUp      },
   { to: '/crypto',      label: 'Crypto',      icon: Bitcoin         },
   { to: '/commodities', label: 'Commodities', icon: Layers          },
@@ -60,17 +64,31 @@ export default function Sidebar() {
       {/* Navigation */}
       <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
 
-        {/* ── Markets section ── */}
+        {/* ── Overview section ── */}
         <p className="text-[10px] uppercase tracking-widest text-slate-600 px-3 mb-2 font-semibold">
-          Markets
+          Overview
         </p>
-        {MARKET_ITEMS.map(({ to, label, icon: Icon }) => (
+        {OVERVIEW_ITEMS.map(({ to, label, icon: Icon }) => (
           <NavLink
             key={to}
             to={to}
             end={to === '/'}   /* 'end' prevents '/' from matching every route */
             className={navClass}
           >
+            <Icon size={18} />
+            {label}
+          </NavLink>
+        ))}
+
+        {/* Divider between sections */}
+        <div className="border-t border-surface-border my-3 mx-1" />
+
+        {/* ── Markets section ── */}
+        <p className="text-[10px] uppercase tracking-widest text-slate-600 px-3 mb-2 font-semibold">
+          Markets
+        </p>
+        {MARKET_ITEMS.map(({ to, label, icon: Icon }) => (
+          <NavLink key={to} to={to} className={navClass}>
             <Icon size={18} />
             {label}
           </NavLink>
