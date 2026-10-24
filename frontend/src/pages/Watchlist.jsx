@@ -38,6 +38,7 @@ const CATEGORY_COLORS = {
 }
 
 const CHART_PERIODS = [
+  { label: '1W', days: 7 },
   { label: '1M', days: 30 },
   { label: '3M', days: 90 },
   { label: '1Y', days: 365 },
@@ -96,29 +97,8 @@ function RelatedNewsItem({ article }) {
 }
 
 /** Compact price-history chart with a period filter, sized for a grid card. */
-function PriceHistorySection({ symbol, category }) {
-  const [detail, setDetail] = useState(null)   // null while loading
-  const [period, setPeriod] = useState('3M')
+function PriceHistorySection({ category, period, setPeriod, detail, filteredHistory }) {
   const color = CATEGORY_COLORS[category] ?? '#6366f1'
-
-  useEffect(() => {
-    let cancelled = false
-    setDetail(null)
-    const fetchDetail = DETAIL_FETCHERS[category]
-    if (!fetchDetail) { setDetail({ history: [] }); return }
-    fetchDetail(symbol)
-      .then(data => { if (!cancelled) setDetail(data) })
-      .catch(() => { if (!cancelled) setDetail({ history: [] }) })
-    return () => { cancelled = true }
-  }, [symbol, category])
-
-  const filteredHistory = useMemo(() => {
-    if (!detail?.history?.length) return []
-    const days = CHART_PERIODS.find(p => p.label === period)?.days ?? 90
-    const cutoff = new Date()
-    cutoff.setDate(cutoff.getDate() - days)
-    return detail.history.filter(row => new Date(row.date) >= cutoff)
-  }, [detail, period])
 
   return (
     <div className="pt-3 border-t border-surface-border">
@@ -152,8 +132,9 @@ function PriceHistorySection({ symbol, category }) {
 /** One watched asset: price summary header, price chart, and related news list, newest first. */
 function WatchlistAssetCard({ item }) {
   const [news, setNews] = useState(null)   // null while loading
+  const [detail, setDetail] = useState(null)   // null while loading
+  const [period, setPeriod] = useState('3M')
   const { toggle } = useWatchlist()
-  const isUp = item.change_percent >= 0
 
   useEffect(() => {
     let cancelled = false
@@ -162,6 +143,38 @@ function WatchlistAssetCard({ item }) {
       .catch(() => { if (!cancelled) setNews([]) })
     return () => { cancelled = true }
   }, [item.symbol])
+
+  useEffect(() => {
+    let cancelled = false
+    setDetail(null)
+    const fetchDetail = DETAIL_FETCHERS[item.category]
+    if (!fetchDetail) { setDetail({ history: [] }); return }
+    fetchDetail(item.symbol)
+      .then(data => { if (!cancelled) setDetail(data) })
+      .catch(() => { if (!cancelled) setDetail({ history: [] }) })
+    return () => { cancelled = true }
+  }, [item.symbol, item.category])
+
+  const filteredHistory = useMemo(() => {
+    if (!detail?.history?.length) return []
+    const days = CHART_PERIODS.find(p => p.label === period)?.days ?? 90
+    const cutoff = new Date()
+    cutoff.setDate(cutoff.getDate() - days)
+    return detail.history.filter(row => new Date(row.date) >= cutoff)
+  }, [detail, period])
+
+  // Change % over the selected period: first vs. last close in range.
+  // Falls back to the watchlist's own daily change while history is loading
+  // or the period has fewer than two points to compare.
+  const periodChangePercent = useMemo(() => {
+    if (filteredHistory.length < 2) return item.change_percent
+    const first = filteredHistory[0].close
+    const last = filteredHistory[filteredHistory.length - 1].close
+    if (!first) return item.change_percent
+    return ((last - first) / first) * 100
+  }, [filteredHistory, item.change_percent])
+
+  const isUp = periodChangePercent >= 0
 
   return (
     <div className="card">
@@ -187,7 +200,7 @@ function WatchlistAssetCard({ item }) {
                 ? <TrendingUp size={10} className="inline mr-1" />
                 : <TrendingDown size={10} className="inline mr-1" />
               }
-              {item.change_percent != null ? `${isUp ? '+' : ''}${item.change_percent.toFixed(2)}%` : '—'}
+              {periodChangePercent != null ? `${isUp ? '+' : ''}${periodChangePercent.toFixed(2)}%` : '—'}
             </p>
           </div>
           <button
@@ -201,7 +214,13 @@ function WatchlistAssetCard({ item }) {
       </div>
 
       {/* ── Price history chart, filterable by period ── */}
-      <PriceHistorySection symbol={item.symbol} category={item.category} />
+      <PriceHistorySection
+        category={item.category}
+        period={period}
+        setPeriod={setPeriod}
+        detail={detail}
+        filteredHistory={filteredHistory}
+      />
 
       {/* ── Related news, sorted newest to oldest ── */}
       <div className="pt-3 mt-3 border-t border-surface-border">
