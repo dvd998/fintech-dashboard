@@ -2,13 +2,14 @@
 Financial news fetching and AI sentiment analysis service.
 
 Flow:
-  1. Pull headlines from multiple free RSS feeds via feedparser.
+  1. Pull headlines from multiple free RSS feeds via feedparser, plus Finnhub.
   2. Skip URLs already stored in the DB (deduplication).
   3. Send each new article to Claude Haiku for structured JSON analysis.
      — Uses prompt caching on the large static system prompt (tracked asset list)
        so we pay the full token cost only once per cache window.
   4. Run up to ANALYSIS_WORKERS Claude calls in parallel (ThreadPoolExecutor).
-  5. Persist articles + analysis to the news_articles table.
+  5. Drop articles Claude judges not market-relevant (personal-finance advice,
+     lifestyle, etc.), then persist the rest to the news_articles table.
 """
 import json
 import logging
@@ -25,6 +26,7 @@ from anthropic import Anthropic
 from ..models import NewsArticle
 from ..config import ASSETS
 from ..schemas import AffectedAssetSchema, NewsArticleSchema
+from .finnhub_news import fetch_finnhub_articles
 
 logger = logging.getLogger(__name__)
 
@@ -108,13 +110,19 @@ _SYSTEM_CONTENT = (
     + json.dumps(TRACKED_ASSETS, indent=2)
     + "\n\n"
     "Respond with a single valid JSON object — no markdown, no extra text — with these fields:\n"
+    "  is_market_relevant : boolean — true if this is genuine market/economic/company news, "
+    "even if the sentiment is neutral (e.g. \"Fed holds rates steady\", \"company reports Q3 "
+    "earnings\"). false if it is personal-finance advice, lifestyle, career, or family/real-estate "
+    "content with no real tie to markets or the tracked assets (e.g. advice columns about "
+    "inheritance, divorce settlements, or buying a relative's house).\n"
     "  sentiment_label  : \"bullish\" | \"bearish\" | \"neutral\"\n"
     "  sentiment_score  : float, -1.0 (very bearish) to +1.0 (very bullish)\n"
     "  affected_assets  : array of {symbol, name, category, "
     "impact (\"positive\"|\"negative\"|\"neutral\"), reason}\n"
     "  reasoning        : 2–3 sentences explaining the market impact\n"
     "  tags             : array of short keyword tags e.g. [\"Fed\", \"Tech\", \"Oil\"]\n"
-    "Include only assets genuinely likely to be affected."
+    "Include only assets genuinely likely to be affected. If is_market_relevant is false, "
+    "sentiment_label should be \"neutral\" and affected_assets should be empty."
 )
 
 
@@ -195,12 +203,12 @@ def serialize_article(article: NewsArticle) -> NewsArticleSchema:
 
 # ── Main entry point ──────────────────────────────────────────────────────────
 
-def fetch_and_analyze(db: Session) -> int:
+def fetch_and_analyze(db: Session) -> tuple[int, int]:
     """
-    Fetch RSS feeds, analyze new articles with Claude, persist to DB.
-    Returns the number of articles newly stored.
+    Fetch RSS + Finnhub, analyze new articles with Claude, persist to DB.
+    Returns (stored_count, skipped_irrelevant_count).
     """
-    raw_articles = fetch_rss_articles()
+    raw_articles = fetch_rss_articles() + fetch_finnhub_articles()
 
     # Deduplicate against what's already in the DB
     new_articles = [
@@ -210,7 +218,7 @@ def fetch_and_analyze(db: Session) -> int:
 
     if not new_articles:
         logger.info("No new articles found.")
-        return 0
+        return 0, 0
 
     logger.info("Analyzing %d new articles with Claude...", len(new_articles))
 
@@ -228,10 +236,18 @@ def fetch_and_analyze(db: Session) -> int:
             except Exception as exc:
                 logger.error("Analysis failed for %s: %s", url, exc)
 
-    # Persist everything in one transaction
+    # Persist everything in one transaction, skipping articles Claude judged
+    # not genuinely market-relevant (personal-finance advice, lifestyle, etc.)
     now = datetime.now(timezone.utc)
+    stored = 0
+    skipped = 0
     for art in new_articles:
         analysis = analyses.get(art["url"])
+
+        if analysis is not None and analysis.get("is_market_relevant") is False:
+            skipped += 1
+            continue
+
         row = NewsArticle(
             url          = art["url"],
             title        = art["title"],
@@ -247,7 +263,8 @@ def fetch_and_analyze(db: Session) -> int:
             analyzed_at     = now if analysis else None,
         )
         db.add(row)
+        stored += 1
 
     db.commit()
-    logger.info("Stored %d new articles.", len(new_articles))
-    return len(new_articles)
+    logger.info("Stored %d new articles (%d skipped as not market-relevant).", stored, skipped)
+    return stored, skipped

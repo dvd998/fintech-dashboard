@@ -35,18 +35,19 @@ def get_news(limit: int | None = None, db: Session = Depends(get_db)):
 @router.post("/news/refresh", response_model=NewsRefreshResponse)
 def refresh_news(db: Session = Depends(get_db)):
     """
-    Pull fresh articles from RSS feeds and analyze them with Claude.
-    Returns how many new articles were stored.
+    Pull fresh articles from RSS feeds + Finnhub and analyze them with Claude.
+    Returns how many new articles were stored (irrelevant ones are skipped).
     """
     try:
-        count = fetch_and_analyze(db)
-        return NewsRefreshResponse(
-            new_articles = count,
-            message      = (
-                f"Analyzed and stored {count} new article(s)."
-                if count else "No new articles found — everything is up to date."
-            ),
-        )
+        count, skipped = fetch_and_analyze(db)
+        if count == 0 and skipped == 0:
+            message = "No new articles found — everything is up to date."
+        else:
+            message = f"Stored {count} new article(s)"
+            if skipped:
+                message += f" ({skipped} skipped as not market-relevant)"
+            message += "."
+        return NewsRefreshResponse(new_articles=count, message=message)
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc))
     except Exception as exc:
