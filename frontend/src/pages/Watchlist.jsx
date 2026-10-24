@@ -10,32 +10,11 @@ import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Star, TrendingUp, TrendingDown, X, Newspaper, ExternalLink } from 'lucide-react'
 import { useWatchlist } from '../context/WatchlistContext'
-import {
-  fetchWatchlistNews,
-  fetchStockDetail, fetchCryptoDetail, fetchCommodityDetail, fetchForexDetail, fetchIndexDetail,
-} from '../services/api'
+import { fetchWatchlistNews } from '../services/api'
 import SentimentBadge, { sentimentBorder } from '../components/common/SentimentBadge'
 import PriceAreaChart from '../components/charts/PriceAreaChart'
 import { timeAgo } from '../utils/format'
-
-// Each category's detail endpoint returns the same shape ({ history: [...] });
-// dispatch to the right one by the asset's category, same as the market pages.
-const DETAIL_FETCHERS = {
-  stocks: fetchStockDetail,
-  crypto: fetchCryptoDetail,
-  commodities: fetchCommodityDetail,
-  forex: fetchForexDetail,
-  indices: fetchIndexDetail,
-}
-
-// Matches the accent color each market page uses for its own chart
-const CATEGORY_COLORS = {
-  stocks: '#6366f1',
-  crypto: '#f59e0b',
-  commodities: '#10b981',
-  forex: '#38bdf8',
-  indices: '#a78bfa',
-}
+import { DETAIL_FETCHERS, CATEGORY_COLORS } from '../utils/assetDetail'
 
 const CHART_PERIODS = [
   { label: '1W', days: 7 },

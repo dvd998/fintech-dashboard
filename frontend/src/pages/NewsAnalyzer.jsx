@@ -22,15 +22,26 @@
  *   statusMsg   — short feedback message shown after a refresh
  *   error       — error string to display if something goes wrong
  */
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   Sparkles, RefreshCw, Loader2,
   Brain, Newspaper, ExternalLink, AlertTriangle,
-  Search, X,
+  Search, X, LineChart as LineChartIcon,
 } from 'lucide-react'
 import { fetchNews, refreshNews } from '../services/api'
 import { timeAgo } from '../utils/format'
 import SentimentBadge, { sentimentBorder } from '../components/common/SentimentBadge'
+import PriceAreaChart from '../components/charts/PriceAreaChart'
+import { DETAIL_FETCHERS, CATEGORY_COLORS } from '../utils/assetDetail'
+
+// Horizons measured forward from the article's publish date (not from today),
+// so each one asks "how did the asset move in the N days after this broke?"
+const IMPACT_PERIODS = [
+  { label: '1D', days: 1 },
+  { label: '1W', days: 7 },
+  { label: '1M', days: 30 },
+  { label: '3M', days: 90 },
+]
 
 // ── Sub-components ────────────────────────────────────────────────────────────
 
@@ -73,6 +84,135 @@ function AssetChip({ asset }) {
     >
       {arrow} {asset.symbol}
     </span>
+  )
+}
+
+/**
+ * "Market Impact Since Release" — shows how one affected asset actually moved
+ * in the days/weeks after the article was published, as a price chart plus a
+ * % change figure for the selected horizon. Lets the user switch between
+ * affected assets when an article names more than one.
+ */
+function NewsImpactSection({ article }) {
+  const assets = article.affected_assets ?? []
+  const publishedAt = article.published_at ?? article.fetched_at
+
+  const [selectedSymbol, setSelectedSymbol] = useState(assets[0]?.symbol)
+  const [period, setPeriod] = useState('1W')
+  const [detail, setDetail] = useState(null)   // null while loading
+
+  const selectedAsset = assets.find(a => a.symbol === selectedSymbol) ?? assets[0]
+
+  useEffect(() => {
+    if (!selectedAsset) return
+    let cancelled = false
+    setDetail(null)
+    const fetchDetail = DETAIL_FETCHERS[selectedAsset.category]
+    if (!fetchDetail) { setDetail({ history: [] }); return }
+    fetchDetail(selectedAsset.symbol)
+      .then(data => { if (!cancelled) setDetail(data) })
+      .catch(() => { if (!cancelled) setDetail({ history: [] }) })
+    return () => { cancelled = true }
+  }, [selectedAsset?.symbol, selectedAsset?.category])
+
+  // Midnight of the publish day — daily closes represent the whole trading
+  // day, so the publish day's own close still counts even if the article
+  // broke mid-session; comparing full timestamps would wrongly exclude it.
+  const publishDay = useMemo(() => {
+    if (!publishedAt) return null
+    const d = new Date(publishedAt)
+    return new Date(d.getFullYear(), d.getMonth(), d.getDate())
+  }, [publishedAt])
+
+  // History from the publish day onward, oldest first.
+  const sincePublish = useMemo(() => {
+    if (!detail?.history?.length || !publishDay) return []
+    return detail.history
+      .filter(row => new Date(row.date) >= publishDay)
+      .sort((a, b) => new Date(a.date) - new Date(b.date))
+  }, [detail, publishDay])
+
+  // Sliced to the selected horizon — capped at today, since a 1M/3M window
+  // may still be in the future for a recently-published article.
+  const windowed = useMemo(() => {
+    if (!sincePublish.length || !publishDay) return []
+    const days = IMPACT_PERIODS.find(p => p.label === period)?.days ?? 7
+    const cutoff = new Date(publishDay)
+    cutoff.setDate(cutoff.getDate() + days)
+    return sincePublish.filter(row => new Date(row.date) <= cutoff)
+  }, [sincePublish, period, publishDay])
+
+  const changePercent = useMemo(() => {
+    if (windowed.length < 2) return null
+    const first = windowed[0].close
+    const last = windowed[windowed.length - 1].close
+    if (!first) return null
+    return ((last - first) / first) * 100
+  }, [windowed])
+
+  if (!assets.length || !publishedAt) return null
+
+  const color = CATEGORY_COLORS[selectedAsset?.category] ?? '#6366f1'
+  const isUp = changePercent != null && changePercent >= 0
+
+  return (
+    <div>
+      <p className="text-[10px] text-slate-600 uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
+        <LineChartIcon size={11} />
+        Market Impact Since Release
+      </p>
+
+      {/* Asset switcher — only needed when more than one asset was flagged */}
+      {assets.length > 1 && (
+        <div className="flex flex-wrap gap-1.5 mb-2">
+          {assets.map(a => (
+            <button
+              key={a.symbol}
+              onClick={() => setSelectedSymbol(a.symbol)}
+              className={`text-[10px] px-2 py-0.5 rounded num border transition-colors ${
+                a.symbol === selectedAsset?.symbol
+                  ? 'bg-brand/15 text-brand border-brand/30'
+                  : 'text-slate-400 border-surface-border hover:text-white'
+              }`}
+            >
+              {a.symbol}
+            </button>
+          ))}
+        </div>
+      )}
+
+      <div className="flex items-center justify-between mb-2">
+        <p className={`text-sm font-semibold num ${isUp ? 'text-up' : changePercent != null ? 'text-down' : 'text-slate-500'}`}>
+          {changePercent != null ? `${isUp ? '+' : ''}${changePercent.toFixed(2)}%` : '—'}
+          <span className="ml-1.5 text-[10px] text-slate-600 font-normal">since release</span>
+        </p>
+        <div className="flex gap-1 bg-surface-border/40 rounded-lg p-0.5">
+          {IMPACT_PERIODS.map(p => (
+            <button
+              key={p.label}
+              onClick={() => setPeriod(p.label)}
+              className={`px-2 py-0.5 text-[11px] rounded font-medium transition-all ${
+                period === p.label ? 'bg-brand text-white' : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {detail === null && <div className="h-[100px] bg-surface rounded-lg animate-pulse" />}
+
+      {detail && windowed.length < 2 && (
+        <div className="h-16 flex items-center justify-center text-slate-500 text-xs text-center px-4">
+          Not enough price history yet for this horizon — check back once more time has passed.
+        </div>
+      )}
+
+      {detail && windowed.length >= 2 && (
+        <PriceAreaChart data={windowed} color={color} height={100} />
+      )}
+    </div>
   )
 }
 
@@ -157,6 +297,13 @@ function NewsCard({ article, expanded, onToggle }) {
                       <AssetChip key={asset.symbol} asset={asset} />
                     ))}
                   </div>
+                </div>
+              )}
+
+              {/* Market impact chart — how affected assets moved after release */}
+              {article.affected_assets?.length > 0 && (
+                <div className="pt-3 border-t border-surface-border">
+                  <NewsImpactSection article={article} />
                 </div>
               )}
 
