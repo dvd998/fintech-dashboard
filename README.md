@@ -81,7 +81,7 @@ npm install
 npm run dev
 ```
 
-Open `http://localhost:5173` in your browser.
+The browser opens automatically at `http://localhost:5173` on the landing page — click **Enter Dashboard** to continue.
 
 ### Environment variables
 

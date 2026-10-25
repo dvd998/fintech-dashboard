@@ -6,7 +6,8 @@ import { RefreshCw } from 'lucide-react'
 
 // Map URL paths to readable page titles
 const PAGE_TITLES = {
-  '/':                    'Dashboard',
+  '/dashboard':           'Dashboard',
+  '/watchlist':           'Watchlist',
   '/stocks':              'Stocks',
   '/crypto':              'Crypto',
   '/commodities':         'Commodities',

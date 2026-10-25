@@ -20,6 +20,16 @@ export default {
         up:   '#10b981', // green  — positive price change
         down: '#ef4444', // red    — negative price change
       },
+      // Infinite horizontal scroll for the Landing page ticker tape
+      keyframes: {
+        ticker: {
+          '0%':   { transform: 'translateX(0)' },
+          '100%': { transform: 'translateX(-50%)' },
+        },
+      },
+      animation: {
+        ticker: 'ticker 40s linear infinite',
+      },
       fontFamily: {
         mono: ['JetBrains Mono', 'Fira Code', 'monospace'],
       },

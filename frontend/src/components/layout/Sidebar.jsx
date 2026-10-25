@@ -7,7 +7,7 @@
  * NavLink from React Router automatically applies an 'active' style when
  * the current URL matches the link's path.
  */
-import { NavLink } from 'react-router-dom'
+import { Link, NavLink } from 'react-router-dom'
 import {
   LayoutDashboard,
   Star,
@@ -22,7 +22,7 @@ import {
 
 // Overview — personal/at-a-glance pages
 const OVERVIEW_ITEMS = [
-  { to: '/',            label: 'Dashboard',   icon: LayoutDashboard },
+  { to: '/dashboard',   label: 'Dashboard',   icon: LayoutDashboard },
   { to: '/watchlist',   label: 'Watchlist',   icon: Star            },
 ]
 
@@ -54,12 +54,12 @@ export default function Sidebar() {
   return (
     <aside className="fixed top-0 left-0 h-screen w-56 bg-surface-card border-r border-surface-border flex flex-col z-30">
 
-      {/* Logo / brand */}
-      <div className="px-5 py-5 border-b border-surface-border">
+      {/* Logo links back to the Landing page */}
+      <Link to="/" className="block px-5 py-5 border-b border-surface-border hover:bg-surface-hover transition-colors">
         <span className="text-lg font-bold text-brand">Fin</span>
         <span className="text-lg font-bold text-white">Dash</span>
         <p className="text-xs text-slate-500 mt-0.5">Market Intelligence</p>
-      </div>
+      </Link>
 
       {/* Navigation */}
       <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
@@ -72,7 +72,6 @@ export default function Sidebar() {
           <NavLink
             key={to}
             to={to}
-            end={to === '/'}   /* 'end' prevents '/' from matching every route */
             className={navClass}
           >
             <Icon size={18} />
