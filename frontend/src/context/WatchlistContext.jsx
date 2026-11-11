@@ -9,7 +9,9 @@ import { fetchWatchlist, addToWatchlist, removeFromWatchlist } from '../services
 
 const WatchlistContext = createContext(null)
 
-export function WatchlistProvider({ children }) {
+// refreshKey — bumped by the header's Refresh button; reloading on change keeps
+// watchlist prices in sync with the rest of the freshly re-fetched pages
+export function WatchlistProvider({ children, refreshKey }) {
   const [items,   setItems]   = useState([])
   const [loading, setLoading] = useState(true)
 
@@ -24,7 +26,7 @@ export function WatchlistProvider({ children }) {
     }
   }, [])
 
-  useEffect(() => { refresh() }, [refresh])
+  useEffect(() => { refresh() }, [refresh, refreshKey])
 
   const symbols = new Set(items.map(i => i.symbol))
 

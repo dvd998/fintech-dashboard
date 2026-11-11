@@ -73,7 +73,7 @@ export default function App() {
     <BrowserRouter>
       {/* WatchlistProvider loads the starred-assets list once and shares it
           with every star toggle (tables, cards) and the Watchlist page */}
-      <WatchlistProvider>
+      <WatchlistProvider refreshKey={refreshKey}>
         <Routes>
           {/* Landing page — full-screen, no sidebar/header */}
           <Route path="/"  element={<Landing />} />

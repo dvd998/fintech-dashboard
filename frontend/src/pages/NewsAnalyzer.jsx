@@ -124,12 +124,15 @@ function NewsImpactSection({ article }) {
     return new Date(d.getFullYear(), d.getMonth(), d.getDate())
   }, [publishedAt])
 
-  // History from the publish day onward, oldest first.
+  // History from the publish day onward, oldest first — plus the last close
+  // *before* the publish day as the baseline, so a move that happened on the
+  // publish day itself is counted in the % change.
   const sincePublish = useMemo(() => {
     if (!detail?.history?.length || !publishDay) return []
-    return detail.history
-      .filter(row => new Date(row.date) >= publishDay)
-      .sort((a, b) => new Date(a.date) - new Date(b.date))
+    const sorted = [...detail.history].sort((a, b) => new Date(a.date) - new Date(b.date))
+    const firstIdx = sorted.findIndex(row => new Date(row.date) >= publishDay)
+    if (firstIdx === -1) return []   // no candles since the article came out yet
+    return sorted.slice(Math.max(firstIdx - 1, 0))
   }, [detail, publishDay])
 
   // Sliced to the selected horizon — capped at today, since a 1M/3M window

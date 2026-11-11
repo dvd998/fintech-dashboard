@@ -47,24 +47,45 @@ def refresh_current_prices(db: Session) -> None:
     symbols = [a.symbol for a in assets]
     logger.info(f"Refreshing current prices for {len(symbols)} symbols...")
 
-    # yf.download with group_by='ticker' is the fastest way to get many quotes at once
+    # One batched download of the last few daily candles for every symbol.
+    # The last candle is today's (live, while the market is open) and the one
+    # before it is the previous session — that's where price/prev_close come from.
+    # fast_info.previous_close is NOT used: it returns stale/wrong values for
+    # many tickers (e.g. AMZN showing +6% on a day it fell 1.4%).
     try:
-        # fast_info gives us the latest price without downloading full history
+        batch = yf.download(
+            symbols, period="10d", interval="1d", group_by="ticker",
+            auto_adjust=True, progress=False, threads=True,
+        )
+    except Exception as e:
+        logger.error(f"refresh_current_prices download failed: {e}")
+        return
+
+    try:
         for asset in assets:
             try:
-                ticker = yf.Ticker(asset.symbol)
-                fi = ticker.fast_info  # lightweight — just current price data
+                # Batched frames share one date index across all tickers, so drop
+                # the empty rows for days this particular market didn't trade
+                candles = batch[asset.symbol].dropna(subset=["Close"])
+                if len(candles) < 2:
+                    logger.warning(f"Not enough recent candles for {asset.symbol}")
+                    continue
+                last, prev = candles.iloc[-1], candles.iloc[-2]
 
-                price          = getattr(fi, "last_price", None)
-                prev_close     = getattr(fi, "previous_close", None)
-                open_          = getattr(fi, "open", None)
-                high           = getattr(fi, "day_high", None)
-                low            = getattr(fi, "day_low", None)
-                volume         = getattr(fi, "three_month_average_volume", None)
-                market_cap     = getattr(fi, "market_cap", None)
+                price          = float(last["Close"])
+                prev_close     = float(prev["Close"])
+                open_          = float(last["Open"])
+                high           = float(last["High"])
+                low            = float(last["Low"])
+                volume         = float(last["Volume"])
+                # Only stocks have a market cap; fast_info is fine for this field
+                market_cap     = (
+                    getattr(yf.Ticker(asset.symbol).fast_info, "market_cap", None)
+                    if asset.category == "stocks" else None
+                )
 
-                change         = (price - prev_close) if price and prev_close else None
-                change_percent = (change / prev_close * 100) if change and prev_close else None
+                change         = price - prev_close
+                change_percent = (change / prev_close * 100) if prev_close else None
 
                 # Upsert: update if row exists, insert if not
                 row = db.query(CurrentPrice).filter(CurrentPrice.asset_id == asset.id).first()
@@ -106,6 +127,44 @@ def refresh_current_prices(db: Session) -> None:
 # Historical OHLCV data
 # ---------------------------------------------------------------------------
 
+# Candles this many days before the latest stored one are re-written on every
+# refresh, so a candle saved mid-session gets corrected to the day's final close.
+OVERLAP_DAYS = 3
+
+
+def recent_candles(db: Session, asset_id: int) -> tuple[datetime | None, dict]:
+    """
+    Return (cutoff, rows) for an incremental history refresh:
+    candles dated before cutoff are final and can be skipped; rows maps
+    date → stored PriceHistory for the overlap window, to be updated in place.
+    cutoff is None when the asset has no history yet (insert everything).
+    """
+    latest = (
+        db.query(PriceHistory.date)
+        .filter(PriceHistory.asset_id == asset_id)
+        .order_by(PriceHistory.date.desc())
+        .first()
+    )
+    if not latest:
+        return None, {}
+    cutoff = latest[0] - timedelta(days=OVERLAP_DAYS)
+    rows = (
+        db.query(PriceHistory)
+        .filter(PriceHistory.asset_id == asset_id, PriceHistory.date >= cutoff)
+        .all()
+    )
+    return cutoff, {r.date: r for r in rows}
+
+
+def upsert_candle(db: Session, asset_id: int, existing: dict, dt: datetime, **vals) -> None:
+    """Update the stored candle for dt if there is one, otherwise insert a new row."""
+    row = existing.get(dt)
+    if row:
+        for k, v in vals.items():
+            setattr(row, k, v)
+    else:
+        db.add(PriceHistory(asset_id=asset_id, date=dt, **vals))
+
 def refresh_history(db: Session, days: int = 365) -> None:
     """
     Fetch daily OHLCV history for non-crypto assets using yfinance.
@@ -125,32 +184,25 @@ def refresh_history(db: Session, days: int = 365) -> None:
                 logger.warning(f"No history returned for {asset.symbol}")
                 continue
 
-            # Find the latest date already stored so we only insert new rows
-            latest_stored = (
-                db.query(PriceHistory)
-                .filter(PriceHistory.asset_id == asset.id)
-                .order_by(PriceHistory.date.desc())
-                .first()
-            )
-            cutoff = latest_stored.date if latest_stored else None
+            # Only touch new candles plus the last few stored ones (see OVERLAP_DAYS)
+            cutoff, existing = recent_candles(db, asset.id)
 
             for ts, row in hist.iterrows():
                 # ts is a pandas Timestamp — convert to plain datetime
                 dt = ts.to_pydatetime().replace(tzinfo=None)
 
-                # Skip rows we already have
-                if cutoff and dt <= cutoff:
+                # Older candles are final — skip them
+                if cutoff and dt < cutoff:
                     continue
 
-                db.add(PriceHistory(
-                    asset_id=asset.id,
-                    date=dt,
+                upsert_candle(
+                    db, asset.id, existing, dt,
                     open=row.get("Open"),
                     high=row.get("High"),
                     low=row.get("Low"),
                     close=row.get("Close"),
                     volume=row.get("Volume"),
-                ))
+                )
 
         except Exception as e:
             logger.warning(f"Failed to fetch history for {asset.symbol}: {e}")

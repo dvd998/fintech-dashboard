@@ -50,20 +50,21 @@ export default function Dashboard({ onDataLoaded }) {
   async function loadAll() {
     setLoading(true)
     try {
-      // Fetch all categories at the same time (parallel)
-      const [s, c, com, idx] = await Promise.all([
+      // Fetch all categories at the same time (parallel).
+      // allSettled (unlike Promise.all) waits for every request even if one
+      // fails, so a single broken category doesn't blank the whole dashboard.
+      const results = await Promise.allSettled([
         fetchStocks(),
         fetchCrypto(),
         fetchCommodities(),
         fetchIndices(),
       ])
-      setStocks(s)
-      setCrypto(c)
-      setCommodities(com)
-      setIndices(idx)
+      const setters = [setStocks, setCrypto, setCommodities, setIndices]
+      results.forEach((result, i) => {
+        if (result.status === 'fulfilled') setters[i](result.value)
+        else console.error('Dashboard fetch failed:', result.reason)
+      })
       onDataLoaded?.(new Date())
-    } catch (err) {
-      console.error('Dashboard fetch failed:', err)
     } finally {
       setLoading(false)
     }

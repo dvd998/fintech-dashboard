@@ -37,6 +37,7 @@ TRACKED_ASSETS = [
     for cat, asset_list in ASSETS.items()
     for a in asset_list
 ]
+TRACKED_SYMBOLS = {a["symbol"] for a in TRACKED_ASSETS}
 
 RSS_FEEDS = [
     {"name": "Yahoo Finance", "url": "https://finance.yahoo.com/news/rssindex"},
@@ -62,6 +63,14 @@ def _parse_rss_date(date_str: str) -> datetime | None:
     except Exception:
         pass
     return None
+
+
+def only_tracked(affected_assets: list[dict]) -> list[dict]:
+    """
+    Drop assets the app doesn't track. Despite the prompt, Claude occasionally
+    names extra tickers (NFLX, INTC, …) that have no price data to chart.
+    """
+    return [a for a in affected_assets if a.get("symbol") in TRACKED_SYMBOLS]
 
 
 def _strip_html(text: str) -> str:
@@ -93,7 +102,10 @@ def fetch_rss_articles() -> list[dict]:
                     "title":        title,
                     "source":       feed_cfg["name"],
                     "summary":      summary,
-                    "published_at": _parse_rss_date(entry.get("published", "")),
+                    # Some feeds (Yahoo) omit <pubDate> but still send <updated>
+                    "published_at": _parse_rss_date(
+                        entry.get("published") or entry.get("updated", "")
+                    ),
                 })
         except Exception as exc:
             logger.warning("RSS fetch failed for %s: %s", feed_cfg["name"], exc)
@@ -257,7 +269,7 @@ def fetch_and_analyze(db: Session) -> tuple[int, int]:
             fetched_at   = now,
             sentiment_label = analysis.get("sentiment_label") if analysis else None,
             sentiment_score = analysis.get("sentiment_score") if analysis else None,
-            affected_assets = json.dumps(analysis.get("affected_assets", [])) if analysis else None,
+            affected_assets = json.dumps(only_tracked(analysis.get("affected_assets", []))) if analysis else None,
             reasoning       = analysis.get("reasoning") if analysis else None,
             tags            = json.dumps(analysis.get("tags", [])) if analysis else None,
             analyzed_at     = now if analysis else None,

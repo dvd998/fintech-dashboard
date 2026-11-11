@@ -7,8 +7,9 @@ import logging
 import time
 from datetime import datetime, timezone
 from sqlalchemy.orm import Session
-from ..models import Asset, CurrentPrice, PriceHistory
+from ..models import Asset, CurrentPrice
 from ..config import ASSETS
+from .market_data import recent_candles, upsert_candle
 
 logger = logging.getLogger(__name__)
 
@@ -132,13 +133,9 @@ def refresh_crypto_history(db: Session, days: int = 365) -> None:
         volumes = data.get("total_volumes", [])  # [[timestamp_ms, volume], ...]
         vol_by_ts = {int(v[0]): v[1] for v in volumes}
 
-        latest_stored = (
-            db.query(PriceHistory)
-            .filter(PriceHistory.asset_id == asset.id)
-            .order_by(PriceHistory.date.desc())
-            .first()
-        )
-        cutoff = latest_stored.date if latest_stored else None
+        # Only touch new candles plus the last few stored ones — today's row
+        # holds a live price and must be overwritten on the next refresh
+        cutoff, existing = recent_candles(db, asset.id)
 
         # CoinGecko's last point uses the current timestamp (not midnight), so
         # normalizing all points to midnight can produce duplicate dates.
@@ -150,24 +147,23 @@ def refresh_crypto_history(db: Session, days: int = 365) -> None:
             )
             daily[dt] = (int(ts_ms), close)  # later timestamp overwrites earlier same-day entry
 
-        inserted = 0
+        saved = 0
         for dt, (ts_ms, close) in daily.items():
-            if cutoff and dt <= cutoff:
+            if cutoff and dt < cutoff:
                 continue
-            db.add(PriceHistory(
-                asset_id=asset.id,
-                date=dt,
+            upsert_candle(
+                db, asset.id, existing, dt,
                 open=None,
                 high=None,
                 low=None,
                 close=close,
                 volume=vol_by_ts.get(ts_ms),
-            ))
-            inserted += 1
+            )
+            saved += 1
 
         try:
             db.commit()
-            logger.info(f"  {asset.symbol}: {inserted} new candles saved.")
+            logger.info(f"  {asset.symbol}: {saved} candles saved/updated.")
         except Exception as e:
             logger.error(f"  {asset.symbol}: commit failed — {e}")
             db.rollback()
