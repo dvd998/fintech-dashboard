@@ -4,6 +4,8 @@ A real-time financial data dashboard built with FastAPI and React. Tracks stocks
 
 ![Stack](https://img.shields.io/badge/Backend-FastAPI-009688?style=flat-square) ![Stack](https://img.shields.io/badge/Frontend-React%20%2F%20Vite-61DAFB?style=flat-square) ![Stack](https://img.shields.io/badge/Data-yfinance-blue?style=flat-square) ![Stack](https://img.shields.io/badge/AI-Claude%20Haiku-8B5CF6?style=flat-square)
 
+![FinDash demo — landing, dashboard, watchlist, AI news analysis and a leveraged short in the portfolio simulator](docs/demo.gif)
+
 ---
 
 ## Features
@@ -19,6 +21,7 @@ A real-time financial data dashboard built with FastAPI and React. Tracks stocks
 - **Watchlist** — star any asset from a table row or price card; each watched asset gets its own filterable price chart (1W/1M/3M/1Y, with the % change recalculated for the selected period) and a feed of the AI-analyzed news mentioning it
 - **AI News Analyzer** — financial headlines fetched from RSS feeds and Finnhub, filtered for market relevance, and analyzed by Claude AI for sentiment — including a **Market Impact Since Release** chart showing how each affected asset actually moved after the news broke
 - **Portfolio simulator (paper trading)** — start with $100k of virtual cash and buy/sell any tracked stock, crypto, commodity, forex pair or index at the live price (by dollar amount or units, fractional allowed). Positions persist and keep tracking the real market: total value, today's P&L, unrealized/realized P&L, win rate, allocation donut, sortable holdings, full trade log, an equity curve vs. the S&P 500 (since start, or a 1M–1Y backtest of current holdings) and a concentration warning. Non-USD instruments (Nikkei, FTSE, USD/JPY, …) have their P&L converted to USD at live FX rates. Every asset detail panel has a **Trade** button that jumps straight into an order.
+- **Margin trading (Long / Short with leverage)** — CFD-style isolated-margin positions: go long or short on any instrument with leverage capped per asset class at ESMA retail limits (forex 30x, indices 20x, commodities 10x, stocks 5x, crypto 2x). Optional stop-loss / take-profit, a live liquidation price with distance-to-close-out bar, and automatic close-out when losses reach 50% of margin (you can never lose more than the margin posted). A background engine checks every position after each price refresh; the page shows gross/net exposure and effective leverage, flags positions near liquidation, and pops a notice when a position is auto-closed.
 
 ## Tech Stack
 

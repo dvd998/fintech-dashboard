@@ -140,25 +140,83 @@ class PositionSchema(BaseModel):
 
 
 class TransactionSchema(BaseModel):
-    id:           int
+    """
+    One line in the trade log. Spot trades: kind="spot", side=buy|sell.
+    Margin events: kind="margin", side=long|short, action=open|close.
+    """
+    id:           str             # "s12" for spot trades, "m7-open" / "m7-close" for margin events
+    kind:         str             # spot | margin
     symbol:       str
     name:         str
     category:     str
     side:         str
+    action:       Optional[str] = None     # margin only: open | close
+    leverage:     Optional[float] = None   # margin only
+    close_reason: Optional[str] = None     # margin close only: manual | stop_loss | take_profit | liquidated
+    position_id:  Optional[int] = None     # margin only
     units:        float
     price:        float
     currency:     str
-    amount_usd:   float
+    amount_usd:   float           # cash out (buy / margin posted) or cash in (sell / payout)
     realized_pnl: Optional[float]
     executed_at:  datetime
+
+
+class MarginPositionSchema(BaseModel):
+    """An open leveraged Long/Short position valued at the live price."""
+    id:                int
+    symbol:            str
+    name:              str
+    category:          str
+    currency:          str
+    side:              str               # long | short
+    leverage:          float
+    max_leverage:      int
+    margin:            float             # USD posted
+    units:             float
+    notional:          float             # current exposure, USD
+    entry_price:       float
+    current_price:     Optional[float]
+    change_percent:    Optional[float]
+    stop_loss:         Optional[float]
+    take_profit:       Optional[float]
+    liquidation_price: float
+    liq_distance_pct:  Optional[float]   # % the price can still move against you before close-out
+    pnl:               float             # USD
+    roe_pct:           float             # return on margin
+    equity:            float             # margin + pnl (floored at 0)
+    day_pnl:           float
+    weight:            float             # equity as % of total portfolio value
+    exposure_pct:      float             # notional as % of total portfolio value
+    opened_at:         datetime
+
+
+class MarginOpenRequest(BaseModel):
+    symbol:      str
+    side:        str                     # long | short
+    leverage:    float
+    margin_usd:  float
+    stop_loss:   Optional[float] = None
+    take_profit: Optional[float] = None
+
+
+class MarginUpdateRequest(BaseModel):
+    """Replaces both levels; send null to remove one."""
+    stop_loss:   Optional[float] = None
+    take_profit: Optional[float] = None
+
+
+class MarginResultSchema(BaseModel):
+    message:     str
+    position_id: int
 
 
 class PortfolioSummarySchema(BaseModel):
     name:             str
     starting_cash:    float
     cash:             float
-    invested_value:   float     # market value of all positions, USD
-    total_value:      float     # cash + invested
+    invested_value:   float     # market value of spot (Invest) positions, USD
+    total_value:      float     # cash + invested + margin equity
     cost_basis:       float
     unrealized_pnl:   float
     realized_pnl:     float
@@ -167,9 +225,16 @@ class PortfolioSummarySchema(BaseModel):
     day_pnl:          float
     day_pnl_pct:      float
     trade_count:      int
-    win_rate:         Optional[float]   # % of non-break-even sells that were profitable
+    win_rate:         Optional[float]   # % of non-break-even closing trades that were profitable
     created_at:       datetime
     positions:        list[PositionSchema]
+    # Margin trading
+    margin_positions:   list[MarginPositionSchema] = []
+    margin_used:        float = 0       # USD posted across open margin positions
+    margin_equity:      float = 0       # margin + unrealized P&L across them
+    gross_exposure:     float = 0       # spot value + |notional| of every margin position
+    net_exposure:       float = 0       # spot value + long notional − short notional
+    effective_leverage: float = 0       # gross exposure ÷ total value
 
 
 class EquityPointSchema(BaseModel):

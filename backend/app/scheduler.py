@@ -8,6 +8,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from .database import SessionLocal
 from .services.market_data import refresh_current_prices, refresh_history, seed_assets
 from .services.coingecko import refresh_crypto_prices, refresh_crypto_history
+from .services.margin import check_margin_positions
 
 logger = logging.getLogger(__name__)
 
@@ -17,11 +18,23 @@ HISTORY_REFRESH_HOURS = int(os.getenv("HISTORY_REFRESH_HOURS", "24"))
 HISTORY_DAYS          = int(os.getenv("HISTORY_DAYS", "365"))
 
 
+def _check_margin(db) -> None:
+    """After new prices land: auto-close margin positions that hit SL / TP / close-out."""
+    try:
+        closed = check_margin_positions(db)
+        for mp in closed:
+            logger.info(f"Margin position #{mp.id} {mp.side} {mp.asset.symbol} closed: {mp.close_reason}")
+    except Exception as e:
+        logger.error(f"Margin check failed: {e}")
+        db.rollback()
+
+
 def _run_price_refresh():
     """Refresh yfinance prices (stocks, commodities, forex, indices)."""
     db = SessionLocal()
     try:
         refresh_current_prices(db)
+        _check_margin(db)
     finally:
         db.close()
 
@@ -31,6 +44,7 @@ def _run_crypto_price_refresh():
     db = SessionLocal()
     try:
         refresh_crypto_prices(db)
+        _check_margin(db)
     finally:
         db.close()
 

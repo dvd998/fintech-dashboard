@@ -52,3 +52,10 @@ export const fetchPortfolioHistory = (mode = 'actual', days = 90) =>
 export const executeTrade          = (trade) => api.post('/portfolio/trade', trade).then(r => r.data)
 export const resetPortfolio        = (startingCash) =>
   api.post('/portfolio/reset', { starting_cash: startingCash }).then(r => r.data)
+
+// ── Margin trading (leveraged Long / Short) ──────────────────────────────────
+// body: { symbol, side: 'long'|'short', leverage, margin_usd, stop_loss?, take_profit? }
+export const openMarginPosition   = (body) => api.post('/portfolio/margin/open', body).then(r => r.data)
+export const closeMarginPosition  = (id) => api.post(`/portfolio/margin/${id}/close`).then(r => r.data)
+// levels: { stop_loss, take_profit } — null clears a level
+export const updateMarginPosition = (id, levels) => api.patch(`/portfolio/margin/${id}`, levels).then(r => r.data)

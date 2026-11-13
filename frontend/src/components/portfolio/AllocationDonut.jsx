@@ -6,8 +6,10 @@
  * a 2px gap in the card colour.
  *
  * Props:
- *   positions — open positions (each with category + market_value)
- *   cash      — uninvested USD
+ *   positions        — open Invest positions (each with category + market_value)
+ *   marginPositions  — open margin positions; counted at their equity (margin ± P&L),
+ *                      since that's the money actually tied up in them
+ *   cash             — uninvested USD
  */
 import { useMemo, useState } from 'react'
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts'
@@ -27,22 +29,26 @@ function SliceTooltip({ active, payload }) {
   )
 }
 
-export default function AllocationDonut({ positions, cash }) {
+export default function AllocationDonut({ positions, marginPositions = [], cash }) {
   const [hovered, setHovered] = useState(null)
 
   const slices = useMemo(() => {
-    const total = cash + positions.reduce((s, p) => s + p.market_value, 0)
+    const holdings = [
+      ...positions.map(p => ({ category: p.category, value: p.market_value })),
+      ...marginPositions.map(m => ({ category: m.category, value: m.equity })),
+    ]
+    const total = cash + holdings.reduce((s, h) => s + h.value, 0)
     const byCat = CATEGORY_ORDER.map(cat => {
-      const inCat = positions.filter(p => p.category === cat)
+      const inCat = holdings.filter(h => h.category === cat)
       return {
         key: cat, label: CATEGORY_LABELS[cat], color: CATEGORY_COLORS[cat],
-        value: inCat.reduce((s, p) => s + p.market_value, 0), count: inCat.length,
+        value: inCat.reduce((s, h) => s + h.value, 0), count: inCat.length,
       }
     }).filter(s => s.value > 0)
     const all = [...byCat, { key: 'cash', label: 'Cash', color: CASH_COLOR, value: cash, count: 0 }]
       .filter(s => s.value > 0.005)
     return all.map(s => ({ ...s, pct: total ? (s.value / total) * 100 : 0 }))
-  }, [positions, cash])
+  }, [positions, marginPositions, cash])
 
   const investedPct = slices.filter(s => s.key !== 'cash').reduce((a, s) => a + s.pct, 0)
   const focus = slices.find(s => s.key === hovered)

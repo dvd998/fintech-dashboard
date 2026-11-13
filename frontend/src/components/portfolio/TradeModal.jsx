@@ -3,7 +3,9 @@
  *
  * Flow:
  *   1. Pick an instrument (searchable list, filterable by asset class)
- *   2. Choose Buy / Sell (Sell is only enabled when you hold the asset)
+ *   2. Pick a mode:
+ *        Invest — Buy / Sell the asset itself (Sell only when you hold it)
+ *        Margin — leveraged Long / Short with stop-loss & take-profit (see MarginTicket)
  *   3. Enter a size in dollars or units — or use the quick 10/25/50/100% chips
  *   4. Review the order preview and confirm
  *
@@ -13,6 +15,7 @@
  *   cash          — available cash (USD)
  *   initialSymbol — preselect an asset (e.g. coming from a "Buy more" button)
  *   initialSide   — 'buy' | 'sell'
+ *   initialMode   — 'invest' | 'margin'
  *   onClose       — close without trading
  *   onExecuted    — called with the API's success message after a trade
  */
@@ -22,6 +25,7 @@ import { executeTrade } from '../../services/api'
 import { CATEGORY_COLORS } from '../../utils/assetDetail'
 import { fmtUSD, fmtPct, fmtUnits, fmtPrice } from '../../utils/format'
 import { CATEGORY_ORDER, CATEGORY_LABELS, usdPer, pnlClass } from '../../utils/portfolio'
+import MarginTicket from './MarginTicket'
 
 const QUICK_PCTS = [10, 25, 50, 100]
 
@@ -113,7 +117,7 @@ function InstrumentPicker({ instruments, positions, onPick }) {
 
 // ── Step 2: order ticket ─────────────────────────────────────────────────────
 
-function OrderTicket({ instrument, position, cash, totalValue, fx, initialSide, onBack, onExecuted }) {
+function OrderTicket({ instrument, position, cash, totalValue, fx, initialSide, onExecuted }) {
   const [side, setSide]       = useState(position ? initialSide : 'buy')
   const [unitMode, setUnitMode] = useState(false)     // false = size in USD, true = size in units
   const [input, setInput]     = useState('')
@@ -185,26 +189,6 @@ function OrderTicket({ instrument, position, cash, totalValue, fx, initialSide, 
 
   return (
     <form onSubmit={submit}>
-      {/* Instrument header */}
-      <button type="button" onClick={onBack} className="flex items-center gap-1 text-xs text-slate-500 hover:text-white mb-3 transition-colors">
-        <ArrowLeft size={13} /> Change instrument
-      </button>
-      <div className="flex items-start justify-between mb-5">
-        <div>
-          <div className="flex items-center gap-2">
-            <span className="w-2 h-2 rounded-full" style={{ background: CATEGORY_COLORS[instrument.category] }} />
-            <h3 className="text-lg font-semibold text-white">{instrument.name}</h3>
-          </div>
-          <p className="text-xs num text-slate-500 mt-0.5">{instrument.symbol} · {CATEGORY_LABELS[instrument.category]}</p>
-        </div>
-        <div className="text-right">
-          <p className="text-lg font-semibold num text-white">
-            {fmtPrice(instrument.price, instrument.symbol)} <span className="text-xs text-slate-500">{instrument.currency}</span>
-          </p>
-          <p className={`text-xs num ${pnlClass(instrument.change_percent)}`}>{fmtPct(instrument.change_percent)} today</p>
-        </div>
-      </div>
-
       {/* Buy / Sell segmented control */}
       <div className="grid grid-cols-2 gap-1 bg-surface rounded-lg p-1 mb-4">
         {['buy', 'sell'].map(s => (
@@ -324,15 +308,48 @@ function PreviewRow({ label, value, warn, className = 'text-slate-200' }) {
   )
 }
 
+/** Selected instrument: name, symbol, live price — shared by both tickets. */
+function InstrumentHeader({ instrument, onBack }) {
+  return (
+    <>
+      <button type="button" onClick={onBack} className="flex items-center gap-1 text-xs text-slate-500 hover:text-white mb-3 transition-colors">
+        <ArrowLeft size={13} /> Change instrument
+      </button>
+      <div className="flex items-start justify-between mb-4">
+        <div>
+          <div className="flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full" style={{ background: CATEGORY_COLORS[instrument.category] }} />
+            <h3 className="text-lg font-semibold text-white">{instrument.name}</h3>
+          </div>
+          <p className="text-xs num text-slate-500 mt-0.5">{instrument.symbol} · {CATEGORY_LABELS[instrument.category]}</p>
+        </div>
+        <div className="text-right">
+          <p className="text-lg font-semibold num text-white">
+            {fmtPrice(instrument.price, instrument.symbol)} <span className="text-xs text-slate-500">{instrument.currency}</span>
+          </p>
+          <p className={`text-xs num ${pnlClass(instrument.change_percent)}`}>{fmtPct(instrument.change_percent)} today</p>
+        </div>
+      </div>
+    </>
+  )
+}
+
 // ── Modal shell ──────────────────────────────────────────────────────────────
+
+// Invest = buy/own the asset (1x, no liquidation). Margin = leveraged Long/Short.
+const MODES = [
+  { key: 'invest', label: 'Invest',          hint: 'Own the asset · 1x' },
+  { key: 'margin', label: 'Margin · Long/Short', hint: 'Leverage · can short' },
+]
 
 export default function TradeModal({
   instruments, positions, cash, totalValue,
-  initialSymbol, initialSide = 'buy', onClose, onExecuted,
+  initialSymbol, initialSide = 'buy', initialMode = 'invest', onClose, onExecuted,
 }) {
   const [selected, setSelected] = useState(
     () => instruments.find(i => i.symbol === initialSymbol) ?? null
   )
+  const [mode, setMode] = useState(initialMode)
 
   // Close on Escape
   useEffect(() => {
@@ -350,7 +367,7 @@ export default function TradeModal({
       className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4"
       onMouseDown={e => { if (e.target === e.currentTarget) onClose() }}
     >
-      <div className="w-full max-w-md bg-surface-card border border-surface-border rounded-2xl shadow-2xl p-5">
+      <div className="w-full max-w-md max-h-[92vh] overflow-y-auto bg-surface-card border border-surface-border rounded-2xl shadow-2xl p-5">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-base font-semibold text-white">{selected ? 'Place order' : 'Choose an instrument'}</h2>
           <button onClick={onClose} className="text-slate-500 hover:text-white transition-colors p-1">
@@ -358,20 +375,48 @@ export default function TradeModal({
           </button>
         </div>
 
-        {selected
-          ? <OrderTicket
-              key={selected.symbol}
-              instrument={selected}
-              position={position}
-              cash={cash}
-              totalValue={totalValue}
-              fx={fx}
-              initialSide={initialSide}
-              onBack={() => setSelected(null)}
-              onExecuted={onExecuted}
-            />
-          : <InstrumentPicker instruments={instruments} positions={positions} onPick={setSelected} />
-        }
+        {selected ? (
+          <>
+            <InstrumentHeader instrument={selected} onBack={() => setSelected(null)} />
+
+            {/* Invest | Margin tabs */}
+            <div className="grid grid-cols-2 gap-2 mb-4">
+              {MODES.map(m => (
+                <button key={m.key} type="button" onClick={() => setMode(m.key)}
+                  className={`text-left px-3 py-2 rounded-lg border transition-colors ${
+                    mode === m.key
+                      ? 'border-brand/60 bg-brand/10'
+                      : 'border-surface-border hover:border-slate-600'
+                  }`}>
+                  <p className={`text-sm font-medium ${mode === m.key ? 'text-white' : 'text-slate-300'}`}>{m.label}</p>
+                  <p className="text-[11px] text-slate-500">{m.hint}</p>
+                </button>
+              ))}
+            </div>
+
+            {mode === 'invest'
+              ? <OrderTicket
+                  key={selected.symbol}
+                  instrument={selected}
+                  position={position}
+                  cash={cash}
+                  totalValue={totalValue}
+                  fx={fx}
+                  initialSide={initialSide}
+                  onExecuted={onExecuted}
+                />
+              : <MarginTicket
+                  key={selected.symbol}
+                  instrument={selected}
+                  cash={cash}
+                  fx={fx}
+                  onExecuted={onExecuted}
+                />
+            }
+          </>
+        ) : (
+          <InstrumentPicker instruments={instruments} positions={positions} onPick={setSelected} />
+        )}
       </div>
     </div>
   )

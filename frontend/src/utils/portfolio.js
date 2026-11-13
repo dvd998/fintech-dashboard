@@ -45,3 +45,27 @@ export function asUTC(iso) {
   if (!iso) return iso
   return /Z$|[+-]\d\d:?\d\d$/.test(iso) ? iso : `${iso}Z`
 }
+
+// ── Margin trading ───────────────────────────────────────────────────────────
+
+export const LEVERAGE_PRESETS = [1, 2, 5, 10, 20, 30]
+
+// Equity falls to this share of the posted margin → position is force-closed (mirrors margin.py)
+export const CLOSE_OUT_LEVEL = 0.5
+
+// Liquidation is "near" when price is within this % of the close-out price
+export const NEAR_LIQUIDATION_PCT = 10
+
+/** Liquidation price for a fresh position: long entry×(1−0.5/L), short entry×(1+0.5/L). */
+export function liquidationPrice(side, entry, leverage) {
+  const dir = side === 'long' ? 1 : -1
+  return entry * (1 - dir * (1 - CLOSE_OUT_LEVEL) / leverage)
+}
+
+// Labels + colours for how a margin position was closed
+export const CLOSE_REASONS = {
+  manual:      { label: 'Closed',       cls: 'text-slate-300 bg-surface-hover' },
+  stop_loss:   { label: 'Stop-loss',    cls: 'text-amber-400 bg-amber-400/10' },
+  take_profit: { label: 'Take-profit',  cls: 'text-up bg-up/10' },
+  liquidated:  { label: 'Liquidated',   cls: 'text-down bg-down/10' },
+}

@@ -7,11 +7,12 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session, joinedload
 
 from ..database import get_db
-from ..models import Asset, Transaction
+from ..models import Asset
 from ..schemas import (
-    EquityPointSchema, PortfolioSummarySchema, ResetRequest,
-    TradeRequest, TradeResultSchema, TransactionSchema,
+    EquityPointSchema, MarginOpenRequest, MarginResultSchema, MarginUpdateRequest,
+    PortfolioSummarySchema, ResetRequest, TradeRequest, TradeResultSchema, TransactionSchema,
 )
+from ..services import margin as margin_svc
 from ..services import portfolio as svc
 
 router = APIRouter()
@@ -33,6 +34,7 @@ def get_instruments(db: Session = Depends(get_db)):
             "currency": svc.quote_currency(a.symbol),
             "price": a.current_price.price if a.current_price else None,
             "change_percent": a.current_price.change_percent if a.current_price else None,
+            "max_leverage": margin_svc.max_leverage(a.category),
         }
         for a in assets
     ]
@@ -51,17 +53,45 @@ def trade(req: TradeRequest, db: Session = Depends(get_db)):
 
 @router.get("/transactions", response_model=list[TransactionSchema])
 def get_transactions(limit: int = 200, db: Session = Depends(get_db)):
-    """Trade log, newest first."""
-    portfolio = svc.get_or_create_portfolio(db)
-    rows = (
-        db.query(Transaction)
-        .filter(Transaction.portfolio_id == portfolio.id)
-        .options(joinedload(Transaction.asset))
-        .order_by(Transaction.executed_at.desc(), Transaction.id.desc())
-        .limit(limit)
-        .all()
+    """Trade log (spot trades + margin open/close events), newest first."""
+    return svc.list_transactions(db, limit)
+
+
+# ── Margin (leveraged Long / Short) ──────────────────────────────────────────
+
+def _fmt_lev(x: float) -> str:
+    return f"{x:g}x"
+
+
+@router.post("/margin/open", response_model=MarginResultSchema)
+def open_margin(req: MarginOpenRequest, db: Session = Depends(get_db)):
+    """Open a leveraged Long or Short at the current price."""
+    mp = margin_svc.open_margin_position(
+        db, req.symbol, req.side, req.leverage, req.margin_usd, req.stop_loss, req.take_profit,
     )
-    return [svc.serialize_transaction(t) for t in rows]
+    return {
+        "message": f"Opened {mp.side} {_fmt_lev(mp.leverage)} {mp.asset.symbol} "
+                   f"with ${mp.margin_usd:,.2f} margin",
+        "position_id": mp.id,
+    }
+
+
+@router.post("/margin/{position_id}/close", response_model=MarginResultSchema)
+def close_margin(position_id: int, db: Session = Depends(get_db)):
+    """Close a margin position at the current price."""
+    mp = margin_svc.close_margin_position(db, position_id)
+    sign = "+" if mp.realized_pnl >= 0 else "-"
+    return {
+        "message": f"Closed {mp.side} {mp.asset.symbol} · P&L {sign}${abs(mp.realized_pnl):,.2f}",
+        "position_id": mp.id,
+    }
+
+
+@router.patch("/margin/{position_id}", response_model=MarginResultSchema)
+def update_margin(position_id: int, req: MarginUpdateRequest, db: Session = Depends(get_db)):
+    """Set or clear the stop-loss / take-profit of an open margin position."""
+    mp = margin_svc.update_sl_tp(db, position_id, req.stop_loss, req.take_profit)
+    return {"message": f"Updated stop-loss / take-profit for {mp.asset.symbol}", "position_id": mp.id}
 
 
 @router.get("/history", response_model=list[EquityPointSchema])

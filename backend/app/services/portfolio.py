@@ -25,7 +25,7 @@ from datetime import date, datetime, timedelta, timezone
 from fastapi import HTTPException
 from sqlalchemy.orm import Session, joinedload
 
-from ..models import Asset, CurrentPrice, Portfolio, Position, PriceHistory, Transaction
+from ..models import Asset, CurrentPrice, MarginPosition, Portfolio, Position, PriceHistory, Transaction
 
 DEFAULT_STARTING_CASH = 100_000.0
 DEFAULT_PORTFOLIO_ID  = 1
@@ -125,6 +125,7 @@ def reset_portfolio(db: Session, starting_cash: float) -> Portfolio:
     portfolio = get_or_create_portfolio(db)
     db.query(Position).filter(Position.portfolio_id == portfolio.id).delete()
     db.query(Transaction).filter(Transaction.portfolio_id == portfolio.id).delete()
+    db.query(MarginPosition).filter(MarginPosition.portfolio_id == portfolio.id).delete()
     portfolio.starting_cash = starting_cash
     portfolio.cash = starting_cash
     portfolio.created_at = datetime.now(timezone.utc)
@@ -135,7 +136,7 @@ def reset_portfolio(db: Session, starting_cash: float) -> Portfolio:
 
 # ── Summary ──────────────────────────────────────────────────────────────────
 
-def _prev_close(cp: CurrentPrice | None) -> float | None:
+def prev_close(cp: CurrentPrice | None) -> float | None:
     """Previous close, derived from change_percent when prev_close isn't stored."""
     if not cp or cp.price is None:
         return None
@@ -147,7 +148,13 @@ def _prev_close(cp: CurrentPrice | None) -> float | None:
 
 
 def build_summary(db: Session) -> dict:
+    # Imported here: margin.py imports helpers from this module
+    from . import margin as margin_svc
+
     portfolio = get_or_create_portfolio(db)
+    # Settle any stop-loss / take-profit / close-out first, so the page never shows a stale position
+    margin_svc.check_margin_positions(db)
+    db.refresh(portfolio)
     price_of = live_price_lookup(db)
 
     positions = (
@@ -169,7 +176,7 @@ def build_summary(db: Session) -> dict:
 
         # Day P&L: move since previous close, or since entry if opened today
         opened_today = pos.opened_at and pos.opened_at.date() >= today
-        ref = pos.avg_price if opened_today else _prev_close(cp)
+        ref = pos.avg_price if opened_today else prev_close(cp)
         day_pnl = pos.units * (price - ref) * fx if (price is not None and ref) else 0.0
 
         rows.append({
@@ -188,26 +195,46 @@ def build_summary(db: Session) -> dict:
             "opened_at": pos.opened_at,
         })
 
+    margin_rows = margin_svc.summarize_open_positions(db, portfolio.id, price_of, today)
+
     invested = sum(r["market_value"] for r in rows)
-    total = portfolio.cash + invested
+    margin_equity = sum(m["equity"] for m in margin_rows)
+    total = portfolio.cash + invested + margin_equity
     for r in rows:
         r["weight"] = (r["market_value"] / total * 100) if total else 0.0
+    for m in margin_rows:
+        m["weight"] = (m["equity"] / total * 100) if total else 0.0
+        m["exposure_pct"] = (m["notional"] / total * 100) if total else 0.0
     rows.sort(key=lambda r: r["market_value"], reverse=True)
 
-    sells = (
-        db.query(Transaction.realized_pnl)
-        .filter(Transaction.portfolio_id == portfolio.id, Transaction.side == "sell")
-        .all()
-    )
-    realized = sum(s[0] or 0 for s in sells)
-    # Break-even sells (price didn't move) count as neither a win nor a loss
-    decided = [s[0] for s in sells if abs(s[0] or 0) >= 0.01]
+    # Closing trades: spot sells + closed margin positions
+    sells = [
+        s[0] for s in db.query(Transaction.realized_pnl)
+        .filter(Transaction.portfolio_id == portfolio.id, Transaction.side == "sell").all()
+    ]
+    margin_closed = [
+        m[0] for m in db.query(MarginPosition.realized_pnl)
+        .filter(MarginPosition.portfolio_id == portfolio.id, MarginPosition.status == "closed").all()
+    ]
+    closing = sells + margin_closed
+    realized = sum(p or 0 for p in closing)
+    # Break-even closes (price didn't move) count as neither a win nor a loss
+    decided = [p for p in closing if abs(p or 0) >= 0.01]
     wins = sum(1 for p in decided if p > 0)
-    trade_count = db.query(Transaction).filter(Transaction.portfolio_id == portfolio.id).count()
+    # Every margin position is one open trade, plus one close trade once it's closed
+    margin_opened = db.query(MarginPosition).filter(MarginPosition.portfolio_id == portfolio.id).count()
+    trade_count = (
+        db.query(Transaction).filter(Transaction.portfolio_id == portfolio.id).count()
+        + margin_opened + len(margin_closed)
+    )
 
     cost_basis = sum(r["cost_basis"] for r in rows)
-    day_pnl = sum(r["day_pnl"] for r in rows)
+    margin_pnl = sum(m["equity"] - m["margin"] for m in margin_rows)
+    day_pnl = sum(r["day_pnl"] for r in rows) + sum(m["day_pnl"] for m in margin_rows)
     start_of_day = total - day_pnl
+
+    gross = invested + sum(m["notional"] for m in margin_rows)
+    net = invested + sum(m["notional"] * (1 if m["side"] == "long" else -1) for m in margin_rows)
 
     return {
         "name": portfolio.name,
@@ -216,7 +243,7 @@ def build_summary(db: Session) -> dict:
         "invested_value": invested,
         "total_value": total,
         "cost_basis": cost_basis,
-        "unrealized_pnl": invested - cost_basis,
+        "unrealized_pnl": invested - cost_basis + margin_pnl,
         "realized_pnl": realized,
         "total_pnl": total - portfolio.starting_cash,
         "total_pnl_pct": (total / portfolio.starting_cash - 1) * 100,
@@ -226,6 +253,12 @@ def build_summary(db: Session) -> dict:
         "win_rate": (wins / len(decided) * 100) if decided else None,
         "created_at": portfolio.created_at,
         "positions": rows,
+        "margin_positions": margin_rows,
+        "margin_used": sum(m["margin"] for m in margin_rows),
+        "margin_equity": margin_equity,
+        "gross_exposure": gross,
+        "net_exposure": net,
+        "effective_leverage": (gross / total) if total > 0 else 0.0,
     }
 
 
@@ -233,13 +266,55 @@ def build_summary(db: Session) -> dict:
 
 def serialize_transaction(tx: Transaction) -> dict:
     return {
-        "id": tx.id,
+        "id": f"s{tx.id}", "kind": "spot",
         "symbol": tx.asset.symbol, "name": tx.asset.name, "category": tx.asset.category,
         "side": tx.side, "units": tx.units, "price": tx.price,
         "currency": quote_currency(tx.asset.symbol),
         "amount_usd": tx.amount_usd, "realized_pnl": tx.realized_pnl,
         "executed_at": tx.executed_at,
     }
+
+
+def _margin_events(mp: MarginPosition) -> list[dict]:
+    """A margin position as trade-log lines: one 'open' event, plus a 'close' event once closed."""
+    base = {
+        "kind": "margin", "position_id": mp.id,
+        "symbol": mp.asset.symbol, "name": mp.asset.name, "category": mp.asset.category,
+        "side": mp.side, "leverage": mp.leverage, "units": mp.units,
+        "currency": quote_currency(mp.asset.symbol),
+    }
+    events = [{
+        **base, "id": f"m{mp.id}-open", "action": "open",
+        "price": mp.entry_price, "amount_usd": mp.margin_usd,
+        "realized_pnl": None, "executed_at": mp.opened_at,
+    }]
+    if mp.status == "closed":
+        events.append({
+            **base, "id": f"m{mp.id}-close", "action": "close", "close_reason": mp.close_reason,
+            "price": mp.close_price, "amount_usd": mp.margin_usd + (mp.realized_pnl or 0),
+            "realized_pnl": mp.realized_pnl, "executed_at": mp.closed_at,
+        })
+    return events
+
+
+def list_transactions(db: Session, limit: int = 200) -> list[dict]:
+    """Spot trades and margin open/close events merged into one log, newest first."""
+    portfolio = get_or_create_portfolio(db)
+    spot = (
+        db.query(Transaction)
+        .filter(Transaction.portfolio_id == portfolio.id)
+        .options(joinedload(Transaction.asset))
+        .all()
+    )
+    margin = (
+        db.query(MarginPosition)
+        .filter(MarginPosition.portfolio_id == portfolio.id)
+        .options(joinedload(MarginPosition.asset))
+        .all()
+    )
+    rows = [serialize_transaction(t) for t in spot] + [e for mp in margin for e in _margin_events(mp)]
+    rows.sort(key=lambda r: r["executed_at"], reverse=True)
+    return rows[:limit]
 
 
 def execute_trade(db: Session, symbol: str, side: str,
@@ -384,16 +459,31 @@ def _day_range(start: date, end: date) -> list[date]:
     return [start + timedelta(days=i) for i in range((end - start).days + 1)]
 
 
-def _value_holdings(holdings: dict, cash: float, book: _CloseBook, d: date) -> float:
-    """Value {symbol: (units, avg, cost)} on day d using historical closes + FX."""
+def _value_holdings(holdings: dict, cash: float, book: _CloseBook, d: date,
+                    margin: list | None = None) -> float:
+    """
+    Value spot holdings {symbol: (units, avg, cost)} plus margin positions
+    [(symbol, side, units, entry, margin_usd)] on day d using historical closes + FX.
+    """
     lookup = lambda s: book.close_on(s, d)
+
+    def fx_for(sym):
+        try:
+            return usd_per(quote_currency(sym), lookup)
+        except HTTPException:
+            return 1.0
+
     total = cash
     for sym, (units, avg, cost) in holdings.items():
-        try:
-            fx = usd_per(quote_currency(sym), lookup)
-        except HTTPException:
-            fx = 1.0
-        total += position_value(units, avg, cost, lookup(sym), fx)
+        total += position_value(units, avg, cost, lookup(sym), fx_for(sym))
+    for sym, side, units, entry, margin_usd in margin or []:
+        price = lookup(sym)
+        if price is None:
+            total += margin_usd
+            continue
+        direction = 1 if side == "long" else -1
+        # Isolated margin: a position can't be worth less than zero
+        total += max(margin_usd + direction * units * (price - entry) * fx_for(sym), 0.0)
     return total
 
 
@@ -417,13 +507,19 @@ def build_equity_curve(db: Session, mode: str = "actual", days: int = 90) -> lis
         .order_by(Transaction.executed_at.asc(), Transaction.id.asc())
         .all()
     )
+    margin_positions = (
+        db.query(MarginPosition)
+        .filter(MarginPosition.portfolio_id == portfolio.id)
+        .options(joinedload(MarginPosition.asset))
+        .all()
+    )
 
     if mode == "backtest":
         start = today - timedelta(days=max(7, min(days, 365)))
-        symbols = {p["symbol"] for p in summary["positions"]}
+        symbols = {p["symbol"] for p in summary["positions"]} | {m["symbol"] for m in summary["margin_positions"]}
     else:
         start = portfolio.created_at.date() if portfolio.created_at else today
-        symbols = {t.asset.symbol for t in txs}
+        symbols = {t.asset.symbol for t in txs} | {m.asset.symbol for m in margin_positions}
 
     currencies = {quote_currency(s) for s in symbols}
     book = _CloseBook(db, symbols | fx_pair_symbols(currencies) | {BENCHMARK_SYMBOL}, start)
@@ -434,13 +530,33 @@ def build_equity_curve(db: Session, mode: str = "actual", days: int = 90) -> lis
             p["symbol"]: (p["units"], p["avg_price"], p["cost_basis"])
             for p in summary["positions"]
         }
+        margin_held = [
+            (m["symbol"], m["side"], m["units"], m["entry_price"], m["margin"])
+            for m in summary["margin_positions"]
+        ]
         for d in _day_range(start, today - timedelta(days=1)):
-            points.append((d, _value_holdings(holdings, summary["cash"], book, d)))
+            points.append((d, _value_holdings(holdings, summary["cash"], book, d, margin_held)))
     else:
         cash = portfolio.starting_cash
         holdings: dict[str, tuple[float, float, float]] = {}
-        i = 0
+        # Margin cash flows: -margin when opened, +payout when closed
+        flows = sorted(
+            [(m.opened_at, -m.margin_usd) for m in margin_positions]
+            + [(m.closed_at, m.margin_usd + (m.realized_pnl or 0))
+               for m in margin_positions if m.status == "closed"],
+            key=lambda f: f[0],
+        )
+        i = j = 0
         for d in _day_range(start, today - timedelta(days=1)):
+            while j < len(flows) and flows[j][0].date() <= d:
+                cash += flows[j][1]
+                j += 1
+            # Margin positions still open at the end of day d
+            margin_open = [
+                (m.asset.symbol, m.side, m.units, m.entry_price, m.margin_usd)
+                for m in margin_positions
+                if m.opened_at.date() <= d and not (m.closed_at and m.closed_at.date() <= d)
+            ]
             # Apply every trade executed up to the end of day d
             while i < len(txs) and txs[i].executed_at.date() <= d:
                 t = txs[i]
@@ -460,7 +576,7 @@ def build_equity_curve(db: Session, mode: str = "actual", days: int = 90) -> lis
                         holdings[sym] = (left, avg, cost - released)
                     cash += t.amount_usd
                 i += 1
-            points.append((d, _value_holdings(holdings, cash, book, d)))
+            points.append((d, _value_holdings(holdings, cash, book, d, margin_open)))
 
     # Final point is always the live value
     points.append((today, summary["total_value"]))

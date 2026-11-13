@@ -106,6 +106,7 @@ class Portfolio(Base):
 
     positions    = relationship("Position",    back_populates="portfolio", cascade="all, delete-orphan")
     transactions = relationship("Transaction", back_populates="portfolio", cascade="all, delete-orphan")
+    margin_positions = relationship("MarginPosition", back_populates="portfolio", cascade="all, delete-orphan")
 
 
 class Position(Base):
@@ -142,4 +143,38 @@ class Transaction(Base):
     executed_at  = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     portfolio = relationship("Portfolio", back_populates="transactions")
+    asset     = relationship("Asset")
+
+
+class MarginPosition(Base):
+    """
+    A leveraged Long or Short position (CFD-style, isolated margin).
+    Unlike spot Positions, every open is its own row — so each one has its own
+    leverage, stop-loss/take-profit and liquidation price. The row stays after
+    closing (status="closed") and doubles as the margin trade log.
+    """
+    __tablename__ = "margin_positions"
+
+    id           = Column(Integer, primary_key=True, index=True)
+    portfolio_id = Column(Integer, ForeignKey("portfolios.id"), nullable=False)
+    asset_id     = Column(Integer, ForeignKey("assets.id"), nullable=False)
+    side         = Column(String, nullable=False)           # long | short
+    leverage     = Column(Float, nullable=False)
+    margin_usd   = Column(Float, nullable=False)            # cash posted as collateral
+    units        = Column(Float, nullable=False)            # = margin × leverage / (entry × fx)
+    entry_price  = Column(Float, nullable=False)            # quote currency
+    entry_fx     = Column(Float, nullable=False, default=1) # USD per quote-currency unit at entry
+    stop_loss    = Column(Float, nullable=True)             # quote-currency price
+    take_profit  = Column(Float, nullable=True)
+    status       = Column(String, nullable=False, default="open", index=True)  # open | closed
+    opened_at    = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+    # Filled in when the position closes
+    closed_at    = Column(DateTime, nullable=True)
+    close_price  = Column(Float, nullable=True)
+    close_fx     = Column(Float, nullable=True)
+    realized_pnl = Column(Float, nullable=True)             # payout − margin, USD
+    close_reason = Column(String, nullable=True)            # manual | stop_loss | take_profit | liquidated
+
+    portfolio = relationship("Portfolio", back_populates="margin_positions")
     asset     = relationship("Asset")

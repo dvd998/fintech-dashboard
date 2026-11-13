@@ -10,29 +10,37 @@
  *   2. KPI row — total value, today's P&L, unrealized/realized P&L, cash
  *   3. Equity curve vs. S&P 500 (since start, or a backtest of current holdings)
  *      + allocation donut
- *   4. Holdings table with inline Buy/Sell
- *   5. Transaction history + performance insights
+ *   4. Holdings table with inline Buy/Sell (Invest positions)
+ *   5. Margin positions — leveraged Long/Short with SL/TP and liquidation
+ *   6. Transaction history + performance insights
  *
- * Deep link: /ai-playground/portfolio?trade=AAPL&side=buy opens the trade
- * modal preselected — used by the "Trade" button on every asset detail panel.
+ * Deep link: /ai-playground/portfolio?trade=AAPL&side=buy[&mode=margin] opens
+ * the trade modal preselected — used by the "Trade" button on every asset
+ * detail panel.
+ *
+ * The backend auto-closes margin positions (stop-loss / take-profit /
+ * liquidation) after each price refresh; the 60s poll notices positions that
+ * disappeared and shows a toast explaining why.
  */
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import {
   Briefcase, Plus, RotateCcw, Wallet, TrendingUp, TrendingDown, Activity,
   CheckCircle2, X, Loader2, Trophy, AlertTriangle, Target, CalendarDays, Info,
+  Zap, Gauge,
 } from 'lucide-react'
 import {
   fetchPortfolio, fetchInstruments, fetchTransactions, fetchPortfolioHistory, resetPortfolio,
 } from '../services/api'
 import { fmtUSD, fmtPct } from '../utils/format'
-import { pnlClass, asUTC } from '../utils/portfolio'
+import { pnlClass, asUTC, CLOSE_REASONS, NEAR_LIQUIDATION_PCT } from '../utils/portfolio'
 import { CATEGORY_COLORS } from '../utils/assetDetail'
 import TradeModal from '../components/portfolio/TradeModal'
 import EquityChart, { PORTFOLIO_COLOR, BENCHMARK_COLOR } from '../components/portfolio/EquityChart'
 import AllocationDonut from '../components/portfolio/AllocationDonut'
 import HoldingsTable from '../components/portfolio/HoldingsTable'
 import TransactionsList from '../components/portfolio/TransactionsList'
+import MarginPositionsTable from '../components/portfolio/MarginPositionsTable'
 
 // Chart ranges: "Since start" replays real trades; the rest backtest today's holdings
 const RANGES = [
@@ -51,6 +59,9 @@ const CONCENTRATION_LIMIT = 25
 
 const POLL_MS = 60_000   // re-value the book every minute while the page is open
 
+// Effective leverage (gross exposure ÷ portfolio value) above this triggers a warning
+const LEVERAGE_WARNING = 3
+
 // ── Small building blocks ────────────────────────────────────────────────────
 
 function KpiCard({ label, icon: Icon, children, accent }) {
@@ -66,14 +77,16 @@ function KpiCard({ label, icon: Icon, children, accent }) {
   )
 }
 
-function Toast({ message, onClose }) {
+function Toast({ message, tone = 'success', onClose }) {
+  const warn = tone === 'warning'
   useEffect(() => {
-    const t = setTimeout(onClose, 4000)
+    // Auto-close events stay up longer — they happened without the user acting
+    const t = setTimeout(onClose, warn ? 9000 : 4000)
     return () => clearTimeout(t)
-  }, [message, onClose])
+  }, [message, warn, onClose])
   return (
-    <div className="fixed bottom-6 right-6 z-50 flex items-center gap-3 bg-surface-card border border-up/30 rounded-xl px-4 py-3 shadow-2xl">
-      <CheckCircle2 size={18} className="text-up" />
+    <div className={`fixed bottom-6 right-6 z-50 flex items-center gap-3 bg-surface-card border rounded-xl px-4 py-3 shadow-2xl max-w-md ${warn ? 'border-amber-400/40' : 'border-up/30'}`}>
+      {warn ? <AlertTriangle size={18} className="text-amber-400 flex-shrink-0" /> : <CheckCircle2 size={18} className="text-up flex-shrink-0" />}
       <span className="text-sm text-white">{message}</span>
       <button onClick={onClose} className="text-slate-500 hover:text-white"><X size={14} /></button>
     </div>
@@ -158,13 +171,34 @@ export default function Portfolio() {
   const [error, setError]               = useState(null)
   const [trade, setTrade]               = useState(null)    // { symbol, side } while the modal is open
   const [showReset, setShowReset]       = useState(false)
-  const [toast, setToast]               = useState(null)
+  const [toast, setToast]               = useState(null)    // { message, tone }
   const [searchParams, setSearchParams] = useSearchParams()
+  // Margin position ids that were open at the previous load — used to spot auto-closes
+  const prevOpenIds = useRef(null)
 
   // Load summary + trade log + instrument list. `quiet` skips the error banner for background polls.
   const loadAll = useCallback(async (quiet = false) => {
     try {
       const [s, tx, inst] = await Promise.all([fetchPortfolio(), fetchTransactions(), fetchInstruments()])
+
+      // Positions that vanished since the last load and weren't closed by the user
+      // were closed by the backend engine (stop-loss / take-profit / liquidation)
+      const openIds = new Set(s.margin_positions.map(m => m.id))
+      if (prevOpenIds.current) {
+        const autoClosed = tx.filter(t =>
+          t.kind === 'margin' && t.action === 'close' && t.close_reason !== 'manual' &&
+          prevOpenIds.current.has(t.position_id) && !openIds.has(t.position_id))
+        if (autoClosed.length) {
+          setToast({
+            tone: 'warning',
+            message: autoClosed.map(t =>
+              `${t.symbol} ${t.side} ${CLOSE_REASONS[t.close_reason].label.toLowerCase()} · ` +
+              `P&L ${fmtUSD(t.realized_pnl, { sign: true })}`).join(' · '),
+          })
+        }
+      }
+      prevOpenIds.current = openIds
+
       setSummary(s)
       setTransactions(tx)
       setInstruments(inst)
@@ -185,7 +219,8 @@ export default function Portfolio() {
   useEffect(() => {
     if (!summary || range) return
     const ageDays = (Date.now() - new Date(asUTC(summary.created_at)).getTime()) / 86_400_000
-    setRange(ageDays < 7 && summary.positions.length ? '90' : 'actual')
+    const holdsAnything = summary.positions.length + summary.margin_positions.length > 0
+    setRange(ageDays < 7 && holdsAnything ? '90' : 'actual')
   }, [summary, range])
 
   // (Re)load the equity curve when the range changes or after a trade
@@ -204,13 +239,19 @@ export default function Portfolio() {
   useEffect(() => {
     const sym = searchParams.get('trade')
     if (!sym || !instruments.length) return
-    setTrade({ symbol: sym, side: searchParams.get('side') ?? 'buy' })
+    setTrade({ symbol: sym, side: searchParams.get('side') ?? 'buy', mode: searchParams.get('mode') ?? 'invest' })
     setSearchParams({}, { replace: true })
   }, [searchParams, instruments, setSearchParams])
 
   async function handleExecuted(message) {
     setTrade(null)
-    setToast(message)
+    setToast({ message })
+    await loadAll(true)
+  }
+
+  // After a margin close / SL-TP edit from the margin table
+  async function handleMarginChanged(message) {
+    setToast({ message })
     await loadAll(true)
   }
 
@@ -218,7 +259,7 @@ export default function Portfolio() {
     await resetPortfolio(startingCash)
     setShowReset(false)
     setRange('actual')
-    setToast(`Portfolio reset with ${fmtUSD(startingCash)}`)
+    setToast({ message: `Portfolio reset with ${fmtUSD(startingCash)}` })
     await loadAll(true)
   }
 
@@ -232,10 +273,21 @@ export default function Portfolio() {
   }, [history])
 
   const insights = useMemo(() => {
-    if (!summary?.positions.length) return null
-    const byPct = [...summary.positions].sort((a, b) => b.unrealized_pct - a.unrealized_pct)
-    const largest = [...summary.positions].sort((a, b) => b.weight - a.weight)[0]
-    return { best: byPct[0], worst: byPct[byPct.length - 1], largest }
+    if (!summary) return null
+    // One list across Invest and margin positions: % return and share of portfolio.
+    // Margin positions count at their exposure — that's the risk they carry.
+    const all = [
+      ...summary.positions.map(p => ({ key: `s-${p.symbol}`, name: p.name, pct: p.unrealized_pct, share: p.weight })),
+      ...summary.margin_positions.map(m => ({
+        key: `m-${m.id}`, name: `${m.name} ${m.side} ${+m.leverage}x`, pct: m.roe_pct, share: m.exposure_pct,
+        isMargin: true, margin: m.margin, notional: m.notional,
+      })),
+    ]
+    if (!all.length) return null
+    const byPct = [...all].sort((a, b) => b.pct - a.pct)
+    const largest = [...all].sort((a, b) => b.share - a.share)[0]
+    const nearLiq = summary.margin_positions.filter(m => (m.liq_distance_pct ?? 100) < NEAR_LIQUIDATION_PCT)
+    return { best: byPct[0], worst: byPct[byPct.length - 1], largest, nearLiq }
   }, [summary])
 
   // ── Render ──
@@ -263,11 +315,14 @@ export default function Portfolio() {
   }
 
   const s = summary
-  const hasPositions = s.positions.length > 0
+  const hasSpot      = s.positions.length > 0
+  const hasMargin    = s.margin_positions.length > 0
+  const hasPositions = hasSpot || hasMargin
   const cashPct = s.total_value ? (s.cash / s.total_value) * 100 : 100
   const daysActive = Math.max(1, Math.ceil((Date.now() - new Date(asUTC(s.created_at)).getTime()) / 86_400_000))
   const isBacktest = range && range !== 'actual'
-  const openTrade = (symbol = null, side = 'buy') => setTrade({ symbol, side })
+  const openTrade = (symbol = null, side = 'buy', mode = 'invest') => setTrade({ symbol, side, mode })
+  const heldValue = s.invested_value + s.margin_equity
 
   return (
     <div className="max-w-[1600px] mx-auto">
@@ -328,13 +383,16 @@ export default function Portfolio() {
 
         <KpiCard label="Buying Power" icon={Wallet}>
           <p className="text-2xl font-bold num text-white">{fmtUSD(s.cash)}</p>
+          {hasMargin && (
+            <p className="text-[11px] text-slate-500 num -mt-0.5">{fmtUSD(s.margin_used)} posted as margin</p>
+          )}
           {/* Cash vs invested split bar */}
           <div className="flex h-1.5 rounded-full overflow-hidden bg-surface mt-3 gap-0.5">
             <div className="bg-brand rounded-full" style={{ width: `${100 - cashPct}%` }} />
             <div className="bg-slate-500 rounded-full" style={{ width: `${cashPct}%` }} />
           </div>
           <div className="flex justify-between text-[11px] mt-1.5">
-            <span className="text-slate-400"><span className="text-brand">■</span> Invested {fmtUSD(s.invested_value, { compact: true })}</span>
+            <span className="text-slate-400"><span className="text-brand">■</span> Invested {fmtUSD(heldValue, { compact: true })}</span>
             <span className="text-slate-400"><span className="text-slate-500">■</span> Cash {cashPct.toFixed(0)}%</span>
           </div>
         </KpiCard>
@@ -405,7 +463,7 @@ export default function Portfolio() {
 
         <div className="card">
           <h3 className="text-sm font-medium text-slate-300 mb-4">Allocation</h3>
-          <AllocationDonut positions={s.positions} cash={s.cash} />
+          <AllocationDonut positions={s.positions} marginPositions={s.margin_positions} cash={s.cash} />
 
           {/* Top positions by weight — bar length is the share of the whole portfolio */}
           {hasPositions && (
@@ -438,16 +496,18 @@ export default function Portfolio() {
           <h3 className="text-sm font-medium text-slate-300">
             Holdings <span className="text-slate-600 num text-xs ml-1">{s.positions.length}</span>
           </h3>
-          {hasPositions && (
+          {hasSpot && (
             <span className="text-xs text-slate-500">
               Cost basis <span className="num text-slate-300">{fmtUSD(s.cost_basis)}</span>
             </span>
           )}
         </div>
 
-        {hasPositions
+        {hasSpot
           ? <HoldingsTable positions={s.positions} onTrade={openTrade} />
-          : (
+          : hasMargin
+            ? <p className="text-xs text-slate-600 italic py-3">No Invest holdings — you only have margin positions open.</p>
+            : (
             // Empty state with one-click starter ideas
             <div className="text-center py-10">
               <div className="w-14 h-14 rounded-2xl bg-brand/10 flex items-center justify-center mx-auto mb-4">
@@ -480,7 +540,53 @@ export default function Portfolio() {
         }
       </div>
 
-      {/* ── 5. Transactions + insights ── */}
+      {/* ── 5. Margin positions (leveraged Long / Short) ── */}
+      <div className="card mb-5">
+        <div className="flex items-start justify-between gap-4 mb-3 flex-wrap">
+          <h3 className="text-sm font-medium text-slate-300 flex items-center gap-2">
+            <Zap size={14} className="text-brand" />
+            Margin Positions
+            <span className="text-slate-600 num text-xs">{s.margin_positions.length}</span>
+          </h3>
+          {/* Exposure strip — how much market risk the whole book carries */}
+          {hasMargin && (
+            <div className="flex items-center gap-5 text-xs flex-wrap">
+              <span className="text-slate-500">Margin used <span className="num text-slate-200">{fmtUSD(s.margin_used)}</span></span>
+              <span className="text-slate-500">Gross exposure <span className="num text-slate-200">{fmtUSD(s.gross_exposure, { compact: true })}</span></span>
+              <span className="text-slate-500">
+                Net <span className={`num ${s.net_exposure >= 0 ? 'text-up' : 'text-down'}`}>
+                  {s.net_exposure >= 0 ? 'long' : 'short'} {fmtUSD(Math.abs(s.net_exposure), { compact: true })}
+                </span>
+              </span>
+              <span className="text-slate-500" title="Gross exposure ÷ total portfolio value">
+                Effective leverage <span className={`num ${s.effective_leverage > LEVERAGE_WARNING ? 'text-amber-400' : 'text-slate-200'}`}>
+                  {s.effective_leverage.toFixed(2)}x
+                </span>
+              </span>
+            </div>
+          )}
+        </div>
+
+        {hasMargin
+          ? <MarginPositionsTable positions={s.margin_positions} onChanged={handleMarginChanged} />
+          : (
+            // Discoverability: explain what margin is and offer a one-click start
+            <div className="flex items-center justify-between gap-4 bg-surface rounded-lg px-4 py-3 flex-wrap">
+              <p className="text-sm text-slate-400">
+                Expect a drop? <span className="text-white">Go short.</span> Want more exposure?{' '}
+                <span className="text-white">Use leverage</span> — up to 30x on forex, with stop-loss, take-profit and
+                auto-liquidation at 50% margin loss.
+              </p>
+              <button onClick={() => openTrade(null, 'buy', 'margin')}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-brand bg-brand/10 hover:bg-brand/20 border border-brand/30 rounded-lg transition-colors flex-shrink-0">
+                <Zap size={13} /> Open a Long / Short
+              </button>
+            </div>
+          )
+        }
+      </div>
+
+      {/* ── 6. Transactions + insights ── */}
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-5">
         <div className="card xl:col-span-2">
           <TransactionsList transactions={transactions} />
@@ -499,24 +605,48 @@ export default function Portfolio() {
           {insights ? (
             <>
               <InsightRow icon={Trophy} iconClass="text-amber-400" label="Best performer">
-                {insights.best.name} <span className={`num ${pnlClass(insights.best.unrealized_pct)}`}>{fmtPct(insights.best.unrealized_pct)}</span>
+                {insights.best.name} <span className={`num ${pnlClass(insights.best.pct)}`}>{fmtPct(insights.best.pct)}</span>
               </InsightRow>
-              {insights.worst.symbol !== insights.best.symbol && (
+              {insights.worst.key !== insights.best.key && (
                 <InsightRow icon={TrendingDown} iconClass="text-down" label="Worst performer">
-                  {insights.worst.name} <span className={`num ${pnlClass(insights.worst.unrealized_pct)}`}>{fmtPct(insights.worst.unrealized_pct)}</span>
+                  {insights.worst.name} <span className={`num ${pnlClass(insights.worst.pct)}`}>{fmtPct(insights.worst.pct)}</span>
                 </InsightRow>
               )}
               {/* Simple concentration check — a first step toward risk management */}
               <InsightRow
-                icon={insights.largest.weight > CONCENTRATION_LIMIT ? AlertTriangle : CheckCircle2}
-                iconClass={insights.largest.weight > CONCENTRATION_LIMIT ? 'text-amber-400' : 'text-up'}
+                icon={insights.largest.share > CONCENTRATION_LIMIT ? AlertTriangle : CheckCircle2}
+                iconClass={insights.largest.share > CONCENTRATION_LIMIT ? 'text-amber-400' : 'text-up'}
                 label="Concentration"
               >
-                {insights.largest.weight > CONCENTRATION_LIMIT
-                  ? <>{insights.largest.name} is <span className="num text-amber-400">{insights.largest.weight.toFixed(1)}%</span> of your portfolio — consider diversifying (above {CONCENTRATION_LIMIT}%).</>
-                  : <>Largest position is {insights.largest.name} at <span className="num">{insights.largest.weight.toFixed(1)}%</span> — well diversified.</>
+                {insights.largest.share > CONCENTRATION_LIMIT && insights.largest.isMargin
+                  // Leveraged: the cash posted is small, but the market exposure can exceed
+                  // the whole portfolio — say that explicitly instead of "X% of your portfolio".
+                  ? <>{insights.largest.name}: {fmtUSD(insights.largest.margin)} margin controls{' '}
+                      <span className="num">{fmtUSD(insights.largest.notional)}</span> of exposure —{' '}
+                      <span className="num text-amber-400">{insights.largest.share.toFixed(0)}%</span> of your portfolio value,
+                      so every 1% price move swings your portfolio by{' '}
+                      <span className="num text-amber-400">{(insights.largest.share / 100).toFixed(1)}%</span>.</>
+                  : insights.largest.share > CONCENTRATION_LIMIT
+                  ? <>{insights.largest.name} is <span className="num text-amber-400">{insights.largest.share.toFixed(1)}%</span> of your portfolio — consider diversifying (above {CONCENTRATION_LIMIT}%).</>
+                  : <>Largest position is {insights.largest.name} at <span className="num">{insights.largest.share.toFixed(1)}%</span> — well diversified.</>
                 }
               </InsightRow>
+              {/* Margin risk checks */}
+              {insights.nearLiq.length > 0 && (
+                <InsightRow icon={AlertTriangle} iconClass="text-down" label="Near liquidation">
+                  {insights.nearLiq.map(m => (
+                    <p key={m.id}>
+                      {m.name} {m.side} {+m.leverage}x — <span className="num text-down">{m.liq_distance_pct.toFixed(1)}%</span> from close-out
+                    </p>
+                  ))}
+                </InsightRow>
+              )}
+              {s.effective_leverage > LEVERAGE_WARNING && (
+                <InsightRow icon={Gauge} iconClass="text-amber-400" label="Leverage">
+                  Effective leverage is <span className="num text-amber-400">{s.effective_leverage.toFixed(2)}x</span> —
+                  a {(100 / s.effective_leverage).toFixed(0)}% market move against you would wipe out the portfolio.
+                </InsightRow>
+              )}
             </>
           ) : (
             <p className="text-xs text-slate-600 italic pt-2">Insights appear once you hold positions.</p>
@@ -539,12 +669,13 @@ export default function Portfolio() {
           totalValue={s.total_value}
           initialSymbol={trade.symbol}
           initialSide={trade.side}
+          initialMode={trade.mode}
           onClose={() => setTrade(null)}
           onExecuted={handleExecuted}
         />
       )}
       {showReset && <ResetModal current={s.starting_cash} onClose={() => setShowReset(false)} onConfirm={handleReset} />}
-      {toast && <Toast message={toast} onClose={() => setToast(null)} />}
+      {toast && <Toast message={toast.message} tone={toast.tone} onClose={() => setToast(null)} />}
     </div>
   )
 }
