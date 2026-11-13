@@ -1,8 +1,10 @@
 # FinTech Dashboard
 
-A real-time financial data dashboard built with FastAPI and React. Tracks stocks, crypto, forex, commodities, and market indices — all in one dark-mode UI.
+A real-time financial data dashboard built with FastAPI and React. Tracks stocks, crypto, forex, commodities, and market indices, scores market news with Claude AI, and lets you paper-trade all of it (including leveraged long/short positions) — all in one dark-mode UI.
 
 ![Stack](https://img.shields.io/badge/Backend-FastAPI-009688?style=flat-square) ![Stack](https://img.shields.io/badge/Frontend-React%20%2F%20Vite-61DAFB?style=flat-square) ![Stack](https://img.shields.io/badge/Data-yfinance-blue?style=flat-square) ![Stack](https://img.shields.io/badge/AI-Claude%20Haiku-8B5CF6?style=flat-square)
+
+**A 30-second tour:** the landing page and dashboard, the watchlist, Claude's analysis of a tech-selloff headline with its market-impact chart, and a 5x leveraged NVIDIA short in the paper-trading portfolio, with a stop-loss, take-profit and live liquidation price.
 
 ![FinDash demo — landing, dashboard, watchlist, AI news analysis and a leveraged short in the portfolio simulator](docs/demo.gif)
 
@@ -40,13 +42,14 @@ fintech-dashboard/
 ├── backend/
 │   ├── app/
 │   │   ├── routers/        # API endpoints (stocks, crypto, forex, watchlist, news, portfolio, …)
-│   │   ├── services/       # yfinance + CoinGecko + Finnhub data fetching, news + AI analysis, portfolio valuation
+│   │   ├── services/       # yfinance + CoinGecko + Finnhub data fetching, news + AI analysis, portfolio valuation, margin engine
 │   │   ├── models.py       # SQLAlchemy models
 │   │   ├── schemas.py      # Pydantic response schemas
-│   │   ├── scheduler.py    # Background price refresh jobs
+│   │   ├── scheduler.py    # Background price refresh jobs (+ margin SL/TP/liquidation checks)
 │   │   └── config.py       # Tracked asset symbols
 │   ├── scripts/            # One-off maintenance scripts (e.g. news cleanup)
 │   └── requirements.txt
+├── docs/                   # demo.gif used in this README
 └── frontend/
     └── src/
         ├── pages/          # Dashboard, Stocks, Crypto, Forex, Commodities, Indices, Watchlist, NewsAnalyzer, Portfolio
@@ -150,6 +153,40 @@ The large static system prompt (tracked asset list + instructions, ~2 KB) is mar
 - Filter tabs (All / Bullish / Bearish / Neutral) and a ticker/name search box
 - Stats row showing total, bullish, bearish, and neutral counts
 
+## Portfolio Simulator
+
+The **Portfolio** page (under *AI Labs*, below News Analyzer) is a paper-trading account. You start with **$100,000 of virtual cash** and trade any tracked instrument at the live price. No real money is involved, but positions follow real market moves.
+
+### Two ways to trade
+
+| | **Invest** | **Margin · Long/Short** |
+|---|---|---|
+| What it is | Buy and own the asset (1x) | CFD-style leveraged position, isolated margin |
+| Direction | Long only | Long **or** short |
+| Size | By dollar amount or units (fractional allowed) | Margin × leverage = exposure |
+| Leverage | — | Capped per asset class (ESMA retail limits): forex 30x, indices 20x, commodities 10x, stocks 5x, crypto 2x |
+| Risk controls | — | Optional stop-loss / take-profit, live liquidation price |
+| Worst case | Asset goes to zero | Loses the posted margin, never more |
+
+### How margin positions work
+
+- **Exposure = margin × leverage.** Example: $10,000 margin at 5x controls $50,000 of NVDA, so each 1% move is worth ±$500.
+- **P&L = direction × units × (price − entry)**, converted to USD at live FX rates for non-USD instruments.
+- **Auto close-out at 50% of margin.** For a long position the liquidation price is `entry × (1 − 0.5 / leverage)`; for a short it is `entry × (1 + 0.5 / leverage)`. If the price gaps past it, the payout is capped at zero.
+- **A background engine** runs after every price refresh (about 5 min). It checks liquidation first, then stop-loss, then take-profit. Positions fill at the observed price, so a fill can slip past the level you set, as it would with a real broker.
+
+### Page overview
+
+- **KPI cards:** total value, today's P&L, total P&L, and buying power (with the margin currently posted)
+- **Equity curve vs. the S&P 500:** either since you started (replaying every trade) or a 1M–1Y backtest of your current holdings
+- **Allocation donut** by asset class plus cash, with a top-positions list
+- **Holdings table** (sortable) with quick Buy/Sell buttons
+- **Margin Positions:** side and leverage badges, entry and current price, a distance-to-liquidation bar (amber within 10%), stop-loss/take-profit you can edit in place, margin, exposure, P&L and return on margin, and a Close button. The header shows margin used, gross and net exposure, and effective leverage.
+- **Transaction history** filterable by Buys, Sells or Margin, with close-reason badges (Stop-loss, Take-profit, Liquidated)
+- **Insights:** best and worst performer, track record, concentration warning (above 25%), positions near liquidation, and a warning when effective leverage is above 3x
+- A pop-up notice when the engine auto-closes a position
+- A **Trade** button on every asset detail panel opens an order for that asset, and **Reset** starts over with fresh cash
+
 ## API Endpoints
 
 All routes are mounted under `/api`.
@@ -172,5 +209,14 @@ All routes are mounted under `/api`.
 | GET | `/api/watchlist/{symbol}/news` | Analyzed news articles naming this symbol as affected |
 | GET | `/api/playground/news` | All stored news articles with AI analysis (optional `limit`) |
 | POST | `/api/playground/news/refresh` | Fetch latest RSS + Finnhub articles and run Claude analysis |
+| GET | `/api/portfolio/` | Portfolio summary — cash, holdings, margin positions, P&L, exposure |
+| GET | `/api/portfolio/instruments` | Tradable instruments with live price, currency and max leverage |
+| POST | `/api/portfolio/trade` | Invest trade — `{symbol, side: buy\|sell, amount_usd \| units}` |
+| GET | `/api/portfolio/transactions` | Trade log (Invest trades + margin open/close events), newest first (optional `limit`) |
+| GET | `/api/portfolio/history` | Daily portfolio value + S&P 500 benchmark (`mode=actual\|backtest`, `days`) |
+| POST | `/api/portfolio/reset` | Wipe all positions and restart with fresh virtual cash — `{starting_cash}` (default 100,000) |
+| POST | `/api/portfolio/margin/open` | Open a leveraged position — `{symbol, side: long\|short, leverage, margin_usd, stop_loss?, take_profit?}` |
+| POST | `/api/portfolio/margin/{id}/close` | Close a margin position at the current price |
+| PATCH | `/api/portfolio/margin/{id}` | Update a position's stop-loss / take-profit |
 
 Each detail endpoint returns `{ current: {...}, history: [{date, open, high, low, close, volume}] }`.
