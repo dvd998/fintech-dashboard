@@ -22,6 +22,7 @@ import Commodities  from './pages/Commodities'
 import Forex        from './pages/Forex'
 import Indices      from './pages/Indices'
 import NewsAnalyzer from './pages/NewsAnalyzer'
+import Portfolio    from './pages/Portfolio'
 
 export default function App() {
   // lastUpdated is set by each page after it finishes loading data
@@ -60,6 +61,7 @@ export default function App() {
             <Route path="/forex"       element={<Forex       key={refreshKey} onDataLoaded={setLastUpdated} />} />
             <Route path="/indices"             element={<Indices      key={refreshKey} onDataLoaded={setLastUpdated} />} />
             <Route path="/ai-playground/news" element={<NewsAnalyzer key={refreshKey} />} />
+            <Route path="/ai-playground/portfolio" element={<Portfolio key={refreshKey} />} />
             {/* Unknown URLs fall back to the Dashboard */}
             <Route path="*" element={<Navigate to="/dashboard" replace />} />
           </Routes>

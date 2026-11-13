@@ -38,3 +38,17 @@ export const fetchWatchlist      = () => api.get('/watchlist/').then(r => r.data
 export const addToWatchlist      = (symbol) => api.post(`/watchlist/${symbol}`).then(r => r.data)
 export const removeFromWatchlist = (symbol) => api.delete(`/watchlist/${symbol}`).then(r => r.data)
 export const fetchWatchlistNews  = (symbol) => api.get(`/watchlist/${symbol}/news`).then(r => r.data)
+
+// ── Portfolio simulator ──────────────────────────────────────────────────────
+// fetchPortfolio: cash, totals, P&L and every open position at live prices
+export const fetchPortfolio        = () => api.get('/portfolio/').then(r => r.data)
+// fetchInstruments: every tradable asset with live price + quote currency
+export const fetchInstruments      = () => api.get('/portfolio/instruments').then(r => r.data)
+export const fetchTransactions     = () => api.get('/portfolio/transactions').then(r => r.data)
+// mode: 'actual' (real trade replay) | 'backtest' (current holdings over the last `days`)
+export const fetchPortfolioHistory = (mode = 'actual', days = 90) =>
+  api.get('/portfolio/history', { params: { mode, days } }).then(r => r.data)
+// trade: { symbol, side: 'buy'|'sell', amount_usd } or { symbol, side, units }
+export const executeTrade          = (trade) => api.post('/portfolio/trade', trade).then(r => r.data)
+export const resetPortfolio        = (startingCash) =>
+  api.post('/portfolio/reset', { starting_cash: startingCash }).then(r => r.data)

@@ -87,3 +87,59 @@ class WatchlistItem(Base):
     added_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     asset = relationship("Asset")
+
+
+# ── Portfolio simulator ──────────────────────────────────────────────────────
+
+class Portfolio(Base):
+    """
+    A paper-trading account. The app currently uses a single portfolio (id=1),
+    but the schema supports several so we can add multi-portfolio later.
+    """
+    __tablename__ = "portfolios"
+
+    id            = Column(Integer, primary_key=True, index=True)
+    name          = Column(String, nullable=False, default="Main Portfolio")
+    starting_cash = Column(Float, nullable=False)          # USD the account was funded with
+    cash          = Column(Float, nullable=False)          # USD currently uninvested
+    created_at    = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+    positions    = relationship("Position",    back_populates="portfolio", cascade="all, delete-orphan")
+    transactions = relationship("Transaction", back_populates="portfolio", cascade="all, delete-orphan")
+
+
+class Position(Base):
+    """An open holding — one row per (portfolio, asset). Removed when fully sold."""
+    __tablename__ = "positions"
+
+    id             = Column(Integer, primary_key=True, index=True)
+    portfolio_id   = Column(Integer, ForeignKey("portfolios.id"), nullable=False)
+    asset_id       = Column(Integer, ForeignKey("assets.id"), nullable=False)
+    units          = Column(Float, nullable=False)         # fractional units allowed
+    avg_price      = Column(Float, nullable=False)         # average entry, in the asset's quote currency
+    cost_basis_usd = Column(Float, nullable=False)         # USD paid for the units still held
+    opened_at      = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+    portfolio = relationship("Portfolio", back_populates="positions")
+    asset     = relationship("Asset")
+
+    __table_args__ = (UniqueConstraint("portfolio_id", "asset_id", name="uq_portfolio_asset"),)
+
+
+class Transaction(Base):
+    """Immutable trade log — every buy/sell ever executed in a portfolio."""
+    __tablename__ = "transactions"
+
+    id           = Column(Integer, primary_key=True, index=True)
+    portfolio_id = Column(Integer, ForeignKey("portfolios.id"), nullable=False)
+    asset_id     = Column(Integer, ForeignKey("assets.id"), nullable=False)
+    side         = Column(String, nullable=False)           # buy | sell
+    units        = Column(Float, nullable=False)
+    price        = Column(Float, nullable=False)            # execution price, quote currency
+    fx_rate      = Column(Float, nullable=False, default=1) # USD per 1 unit of quote currency at execution
+    amount_usd   = Column(Float, nullable=False)            # cash out (buy) / cash in (sell)
+    realized_pnl = Column(Float, nullable=True)             # USD, sells only
+    executed_at  = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+    portfolio = relationship("Portfolio", back_populates="transactions")
+    asset     = relationship("Asset")

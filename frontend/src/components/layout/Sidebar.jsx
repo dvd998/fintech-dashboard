@@ -2,7 +2,7 @@
  * Sidebar — fixed left navigation.
  * Split into two sections:
  *   Markets  — the original price-data pages
- *   AI Labs  — AI-powered tools (AI Playground, News Analyzer, ...)
+ *   AI Labs  — AI-powered tools (News Analyzer, Portfolio simulator, ...)
  *
  * NavLink from React Router automatically applies an 'active' style when
  * the current URL matches the link's path.
@@ -18,6 +18,7 @@ import {
   BarChart2,
   Sparkles,
   Newspaper,
+  Briefcase,
 } from 'lucide-react'
 
 // Overview — personal/at-a-glance pages
@@ -37,7 +38,8 @@ const MARKET_ITEMS = [
 
 // AI Playground sub-pages — add more here as features ship
 const AI_ITEMS = [
-  { to: '/ai-playground/news', label: 'News Analyzer', icon: Newspaper },
+  { to: '/ai-playground/news',      label: 'News Analyzer', icon: Newspaper },
+  { to: '/ai-playground/portfolio', label: 'Portfolio',     icon: Briefcase },
 ]
 
 // Shared NavLink class builder — same style for both sections

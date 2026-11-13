@@ -14,6 +14,7 @@ const PAGE_TITLES = {
   '/forex':               'Forex',
   '/indices':             'Indices',
   '/ai-playground/news':  'News Analyzer',
+  '/ai-playground/portfolio': 'Portfolio',
 }
 
 export default function Header({ onRefresh, lastUpdated }) {

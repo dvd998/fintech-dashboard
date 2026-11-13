@@ -10,9 +10,11 @@
  *   onClose  — called when the X button is clicked
  */
 import { useState, useMemo } from 'react'
-import { X, TrendingUp, TrendingDown } from 'lucide-react'
+import { Link } from 'react-router-dom'
+import { X, TrendingUp, TrendingDown, Briefcase } from 'lucide-react'
 import PriceCard from './PriceCard'
 import PriceAreaChart from '../charts/PriceAreaChart'
+import { PORTFOLIO_PATH } from '../../utils/portfolio'
 
 const PERIODS = [
   { label: '1W', days: 7 },
@@ -67,9 +69,19 @@ export default function DetailPanel({ selected, detail, color, onClose }) {
             <span className="text-xs font-semibold tracking-widest text-slate-400 uppercase">{currency}</span>
           </p>
         </div>
-        <button onClick={onClose} className="text-slate-500 hover:text-white transition-colors p-1">
-          <X size={18} />
-        </button>
+        <div className="flex items-center gap-2">
+          {/* Opens the Portfolio simulator with this asset preselected in the trade modal */}
+          <Link
+            to={`${PORTFOLIO_PATH}?trade=${encodeURIComponent(selected.symbol)}&side=buy`}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-brand bg-brand/10 hover:bg-brand/20 border border-brand/30 rounded-lg transition-colors"
+          >
+            <Briefcase size={13} />
+            Trade
+          </Link>
+          <button onClick={onClose} className="text-slate-500 hover:text-white transition-colors p-1">
+            <X size={18} />
+          </button>
+        </div>
       </div>
 
       {/* Current price card */}

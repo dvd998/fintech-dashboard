@@ -18,6 +18,7 @@ A real-time financial data dashboard built with FastAPI and React. Tracks stocks
 - SQLite database with 1 year of daily OHLCV history per asset
 - **Watchlist** — star any asset from a table row or price card; each watched asset gets its own filterable price chart (1W/1M/3M/1Y, with the % change recalculated for the selected period) and a feed of the AI-analyzed news mentioning it
 - **AI News Analyzer** — financial headlines fetched from RSS feeds and Finnhub, filtered for market relevance, and analyzed by Claude AI for sentiment — including a **Market Impact Since Release** chart showing how each affected asset actually moved after the news broke
+- **Portfolio simulator (paper trading)** — start with $100k of virtual cash and buy/sell any tracked stock, crypto, commodity, forex pair or index at the live price (by dollar amount or units, fractional allowed). Positions persist and keep tracking the real market: total value, today's P&L, unrealized/realized P&L, win rate, allocation donut, sortable holdings, full trade log, an equity curve vs. the S&P 500 (since start, or a 1M–1Y backtest of current holdings) and a concentration warning. Non-USD instruments (Nikkei, FTSE, USD/JPY, …) have their P&L converted to USD at live FX rates. Every asset detail panel has a **Trade** button that jumps straight into an order.
 
 ## Tech Stack
 
@@ -35,8 +36,8 @@ A real-time financial data dashboard built with FastAPI and React. Tracks stocks
 fintech-dashboard/
 ├── backend/
 │   ├── app/
-│   │   ├── routers/        # API endpoints (stocks, crypto, forex, watchlist, news, …)
-│   │   ├── services/       # yfinance + CoinGecko + Finnhub data fetching, news + AI analysis
+│   │   ├── routers/        # API endpoints (stocks, crypto, forex, watchlist, news, portfolio, …)
+│   │   ├── services/       # yfinance + CoinGecko + Finnhub data fetching, news + AI analysis, portfolio valuation
 │   │   ├── models.py       # SQLAlchemy models
 │   │   ├── schemas.py      # Pydantic response schemas
 │   │   ├── scheduler.py    # Background price refresh jobs
@@ -45,8 +46,8 @@ fintech-dashboard/
 │   └── requirements.txt
 └── frontend/
     └── src/
-        ├── pages/          # Dashboard, Stocks, Crypto, Forex, Commodities, Indices, Watchlist, NewsAnalyzer
-        ├── components/     # PriceCard, PriceTable, DetailPanel, WatchlistToggle, SentimentBadge, charts
+        ├── pages/          # Dashboard, Stocks, Crypto, Forex, Commodities, Indices, Watchlist, NewsAnalyzer, Portfolio
+        ├── components/     # PriceCard, PriceTable, DetailPanel, WatchlistToggle, SentimentBadge, charts, portfolio/
         ├── context/        # WatchlistContext — shares starred assets across the app
         ├── utils/          # formatting helpers, shared asset-detail fetchers
         └── services/       # axios API client

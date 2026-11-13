@@ -102,3 +102,82 @@ class WatchlistItemSchema(BaseModel):
     added_at:       datetime
 
     model_config = {"from_attributes": True}
+
+
+# ── Portfolio simulator ─────────────────────────────────────────────────────
+
+class TradeRequest(BaseModel):
+    """
+    Buy or sell at the current market price.
+    Give exactly one of amount_usd (how many dollars to trade) or units.
+    """
+    symbol:     str
+    side:       str                     # buy | sell
+    amount_usd: Optional[float] = None
+    units:      Optional[float] = None
+
+
+class ResetRequest(BaseModel):
+    starting_cash: float = 100_000
+
+
+class PositionSchema(BaseModel):
+    symbol:          str
+    name:            str
+    category:        str
+    currency:        str                # quote currency of the instrument
+    units:           float
+    avg_price:       float              # quote currency
+    current_price:   Optional[float]    # quote currency
+    change_percent:  Optional[float]    # today's move of the instrument
+    cost_basis:      float              # USD
+    market_value:    float              # USD
+    unrealized_pnl:  float              # USD
+    unrealized_pct:  float
+    day_pnl:         float              # USD, approximate move since previous close
+    weight:          float              # % of total portfolio value
+    opened_at:       datetime
+
+
+class TransactionSchema(BaseModel):
+    id:           int
+    symbol:       str
+    name:         str
+    category:     str
+    side:         str
+    units:        float
+    price:        float
+    currency:     str
+    amount_usd:   float
+    realized_pnl: Optional[float]
+    executed_at:  datetime
+
+
+class PortfolioSummarySchema(BaseModel):
+    name:             str
+    starting_cash:    float
+    cash:             float
+    invested_value:   float     # market value of all positions, USD
+    total_value:      float     # cash + invested
+    cost_basis:       float
+    unrealized_pnl:   float
+    realized_pnl:     float
+    total_pnl:        float     # total_value - starting_cash
+    total_pnl_pct:    float
+    day_pnl:          float
+    day_pnl_pct:      float
+    trade_count:      int
+    win_rate:         Optional[float]   # % of non-break-even sells that were profitable
+    created_at:       datetime
+    positions:        list[PositionSchema]
+
+
+class EquityPointSchema(BaseModel):
+    date:      str             # YYYY-MM-DD
+    value:     float           # portfolio value, USD
+    benchmark: Optional[float] # benchmark rebased to the portfolio's first value
+
+
+class TradeResultSchema(BaseModel):
+    message:     str
+    transaction: TransactionSchema
